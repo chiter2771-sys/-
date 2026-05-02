@@ -98,15 +98,19 @@ class BotScheduler:
                     comment_id = int(item.get("id", 0) or 0)
                     user_id = int(item.get("from_id", 0) or 0)
                     text = (item.get("text") or "").strip()
+                    logger.info("Found comment id=%s post_id=%s", comment_id, post_id)
                     if comment_id <= 0 or user_id <= 0:
                         continue
                     if self.db.has_replied_comment(comment_id):
                         continue
                     if not self.comment_responder.should_reply(text):
+                        logger.info("Comment filtered id=%s", comment_id)
                         continue
                     reply = self.comment_responder.build_reply(text)
                     if not reply:
+                        logger.info("No reply generated id=%s", comment_id)
                         continue
+                    logger.info("Reply generated id=%s: %s", comment_id, reply)
                     self.vk_poster.reply_to_comment(comment_id, reply)
                     self.db.add_comment_reply(comment_id, user_id)
                     self.comment_responder.mark_replied()

@@ -8,7 +8,7 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
-TOPICS = ["anime scenery", "rainy night", "cozy anime night", "melancholy city", "cyberpunk anime"]
+TOPICS = ["аниме ночной город", "дождливая аниме-улица", "уютная аниме-комната", "киберпанк аниме", "аниме-пейзаж"]
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 VKAnimeBot/1.0",
@@ -20,6 +20,8 @@ REDDIT_SOURCES = [
     "https://www.reddit.com/r/Animewallpaper/top.json?t=day&limit=30",
     "https://www.reddit.com/r/ImaginarySliceOfLife/top.json?t=day&limit=30",
 ]
+
+ANIME_HINTS = ("anime", "аниме", "manga", "waifu", "pixiv", "illustration", "digital art")
 
 class ImageFetcher:
     def __init__(self, storage_dir: Path, min_w: int, min_h: int):
@@ -40,6 +42,9 @@ class ImageFetcher:
                             continue
                         if width < self.min_w or height < self.min_h:
                             logger.info("Image rejected by size %sx%s: %s", width, height, img_url)
+                            continue
+                        if not self._looks_like_anime(img_url):
+                            logger.info("Image rejected: no anime hints %s", img_url)
                             continue
                         out = await self._download(session, img_url)
                         if not out:
@@ -75,6 +80,9 @@ class ImageFetcher:
         for child in (((data or {}).get("data") or {}).get("children") or []):
             post = (child or {}).get("data") or {}
             if post.get("over_18") or post.get("is_video"):
+                continue
+            title = (post.get("title") or "").lower()
+            if not any(h in title for h in ANIME_HINTS):
                 continue
             img = (((post.get("preview") or {}).get("images") or [{}])[0].get("source") or {})
             url = (img.get("url") or "").replace("&amp;", "&")
@@ -117,15 +125,28 @@ class ImageFetcher:
             return []
 
     async def _fetch_wallhaven(self, session):
-        url = "https://wallhaven.cc/api/v1/search?q=anime+night&categories=100&purity=100&atleast=1280x720"
+        url = "https://wallhaven.cc/api/v1/search?q=anime+city+night&categories=010&purity=100&atleast=1280x720&sorting=favorites"
         try:
             async with session.get(url) as r:
                 if r.status != 200:
                     return []
                 data = json.loads(await r.text())
-            return [(x.get("path", ""), int(x.get("dimension_x", 0)), int(x.get("dimension_y", 0))) for x in (data.get("data") or []) if x.get("path")]
+            out = []
+            for x in (data.get("data") or []):
+                tags = " ".join((t.get("name", "") for t in (x.get("tags") or []))).lower()
+                if "anime" not in tags:
+                    continue
+                out.append((x.get("path", ""), int(x.get("dimension_x", 0)), int(x.get("dimension_y", 0))))
+            return out
         except Exception:
             return []
+
+    def _looks_like_anime(self, url: str) -> bool:
+        low = (url or "").lower()
+        blocked = ("unsplash", "pexels", "shutterstock", "gettyimages", "nature")
+        if any(x in low for x in blocked):
+            return False
+        return True
 
     async def _download(self, session: aiohttp.ClientSession, url: str) -> Path | None:
         if not url:
