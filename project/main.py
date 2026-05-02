@@ -31,15 +31,33 @@ async def main():
     db = Database(settings.db_path)
     cleanup_storage(settings.storage_path, settings.cleanup_keep_files)
 
+    # Startup connectivity check for image sources (does not stop scheduler)
+    try:
+        probe = await ImageFetcher(settings.storage_path, settings.min_image_width, settings.min_image_height).fetch_random()
+        if probe:
+            image_url, local_path, _, _ = probe
+            logging.info("Startup image fetch URL: %s", image_url)
+            logging.info("Startup image download path: %s", local_path)
+            logging.info("Image fetched successfully")
+        else:
+            logging.error("Startup image probe failed: no image fetched")
+    except Exception:
+        logging.exception("Startup image probe failed with exception")
+
     scheduler = BotScheduler(
         settings=settings,
         db=db,
         image_fetcher=ImageFetcher(settings.storage_path, settings.min_image_width, settings.min_image_height),
-        text_gen=TextGenerator(settings.openai_api_key, settings.openai_model),
-        news_summarizer=NewsSummarizer(settings.openai_api_key, settings.openai_model),
+        text_gen=TextGenerator(settings.openrouter_api_key, settings.openrouter_model, settings.openrouter_fallback_model),
+        news_summarizer=NewsSummarizer(settings.openrouter_api_key, settings.openrouter_model, settings.openrouter_fallback_model),
         vk_poster=VKPoster(settings.vk_token, settings.vk_group_id),
         hashtag_fn=generate_hashtags,
     )
+    if settings.test_post_now:
+        try:
+            await scheduler.publish_test_post_now()
+        except Exception:
+            logging.exception("Test post failed")
     scheduler.start()
     await scheduler.run_forever()
 

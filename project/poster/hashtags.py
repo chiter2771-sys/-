@@ -1,16 +1,17 @@
 import random
 
-BASE_TAGS = ["#anime", "#аниме", "#art", "#арт", "#aesthetic", "#scenery", "#animegirl", "#sakura", "#cyberpunk"]
+
+TOPIC_TAGS = {
+    "anime scenery": ["#anime", "#animescenery", "#nightanime", "#lofi"],
+    "rainy night": ["#anime", "#rainycity", "#nightanime", "#lofi", "#rain"],
+    "cozy anime night": ["#anime", "#cozyanime", "#nightanime", "#lofi"],
+    "melancholy city": ["#anime", "#melancholy", "#rainycity", "#nightanime"],
+    "cyberpunk anime": ["#anime", "#cyberpunk", "#neoncity", "#nightanime", "#lofi"],
+    "sakura": ["#anime", "#sakura", "#springanime", "#animeart"],
+}
 
 
 def generate_hashtags(topic: str) -> str:
-    topic_tags = {
-        "anime scenery": ["#scenery", "#landscape"],
-        "sakura": ["#sakura", "#spring"],
-        "anime girl": ["#animegirl", "#waifu"],
-        "rainy night": ["#rain", "#nightvibes"],
-        "aesthetic anime": ["#aesthetic", "#vibes"],
-        "cyberpunk anime": ["#cyberpunk", "#neon"],
-    }.get(topic, ["#anime"])
-    tags = list(set(topic_tags + random.sample(BASE_TAGS, k=5)))
-    return " ".join(tags[:8])
+    pool = TOPIC_TAGS.get(topic, ["#anime", "#animeart", "#nightanime"])
+    k = random.randint(3, min(5, len(pool)))
+    return " ".join(pool[:k])
