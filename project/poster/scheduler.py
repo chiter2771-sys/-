@@ -81,6 +81,7 @@ class BotScheduler:
         if self.db.has_text(text):
             return
         post_id = self.vk_poster.post(text)
+        self._last_post_id = post_id
         self.db.add_news(entry["guid"], entry["title"], entry["link"], entry.get("published"))
         self.db.add_post("news", None, text, post_id)
         logger.info("Published news post %s", post_id)
