@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 TOPICS = ["anime scenery", "rainy night", "cozy anime night", "melancholy city", "cyberpunk anime"]
 
-HEADERS = {"User-Agent": "Mozilla/5.0 VKContentBot/1.0"}
+HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 VKContentBot/1.2 (+https://vk.com)"}
 
 REDDIT_SOURCES = [
     "https://www.reddit.com/r/Animewallpaper/top.json?t=day&limit=20",
@@ -26,8 +26,9 @@ FALLBACK_SOURCE = "https://nekos.best/api/v2/neko"
 class ImageFetcher:
     def __init__(self, storage_dir: Path, min_w: int, min_h: int):
         self.storage_dir = storage_dir
-        self.min_w = max(700, min_w)
-        self.min_h = max(700, min_h)
+        # Keep configured limits but do not over-reject medium images
+        self.min_w = max(480, min_w)
+        self.min_h = max(480, min_h)
 
     async def fetch_random(self, blocked_urls: set[str] | None = None) -> tuple[str, Path, str, str] | None:
         topic = random.choice(TOPICS)
@@ -43,6 +44,7 @@ class ImageFetcher:
                 if blocked_urls and img_url in blocked_urls:
                     continue
                 if width < self.min_w or height < self.min_h:
+                    logger.info("Rejected reddit image by size %sx%s (< %sx%s): %s", width, height, self.min_w, self.min_h, img_url)
                     continue
                 out = await self._download(session, img_url)
                 if not out:
@@ -63,7 +65,7 @@ class ImageFetcher:
                         logger.info("Image fetched successfully")
                         logger.info("Final image url: %s", img_url)
                         return img_url, out, topic, checksum
-                logger.warning("Fallback image rejected by dimensions %sx%s: %s", width, height, img_url)
+                logger.warning("Fallback image rejected by dimensions %sx%s (< %sx%s): %s", width, height, self.min_w, self.min_h, img_url)
 
         logger.error("No image fetched. All sources exhausted.")
         return None
@@ -74,7 +76,11 @@ class ImageFetcher:
             async with session.get(src, timeout=25) as r:
                 status = r.status
                 logger.info("Reddit HTTP status: %s for %s", status, src)
+                if status == 403:
+                    logger.warning("Reddit 403 for %s, will use fallback sources", src)
+                    return []
                 if status != 200:
+                    logger.warning("Reddit non-200 for %s: %s", src, status)
                     return []
                 text = await r.text()
                 if not text.strip():
