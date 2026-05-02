@@ -7,8 +7,9 @@ from pathlib import Path
 class Settings:
     vk_token: str
     vk_group_id: int
-    openai_api_key: str
-    openai_model: str
+    openrouter_api_key: str
+    openrouter_model: str
+    openrouter_fallback_model: str
     db_path: str
     storage_path: Path
     timezone: str
@@ -36,8 +37,9 @@ def load_settings() -> Settings:
     return Settings(
         vk_token=_require("VK_TOKEN"),
         vk_group_id=int(_require("VK_GROUP_ID")),
-        openai_api_key=_require("OPENAI_API_KEY"),
-        openai_model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+        openrouter_api_key=_require("OPENROUTER_API_KEY"),
+        openrouter_model=os.getenv("OPENROUTER_MODEL", "openai/gpt-4.1-mini"),
+        openrouter_fallback_model=os.getenv("OPENROUTER_FALLBACK_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
         db_path=os.getenv("DB_PATH", "database/bot.db"),
         storage_path=storage,
         timezone=os.getenv("TIMEZONE", "Europe/Moscow"),
