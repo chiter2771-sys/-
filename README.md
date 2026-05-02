@@ -5,7 +5,7 @@
 ## Возможности
 - 2–5 арт-постов в день со случайным временем (в дневном окне).
 - Редкие новости (до 1–2 раз в день) из RSS (ANN, MAL, Crunchyroll).
-- Генерация подписей и кратких news-summary через OpenAI.
+- Генерация подписей и кратких news-summary через OpenRouter (через официальный OpenAI Python SDK).
 - Авто-хэштеги (4–8 шт.).
 - Антидубли по checksum изображений и тексту.
 - SQLite-история постов/новостей/картинок.
@@ -29,10 +29,11 @@ python main.py
 Обязательные:
 - `VK_TOKEN`
 - `VK_GROUP_ID`
-- `OPENAI_API_KEY`
+- `OPENROUTER_API_KEY`
 
 Дополнительные:
-- `OPENAI_MODEL` (по умолчанию `gpt-4.1-mini`)
+- `OPENROUTER_MODEL` (по умолчанию `openai/gpt-4.1-mini`)
+- `OPENROUTER_FALLBACK_MODEL` (по умолчанию `meta-llama/llama-3.3-70b-instruct:free`)
 - `TIMEZONE`
 - `POSTING_START_HOUR`, `POSTING_END_HOUR`
 - `POSTS_MIN_PER_DAY`, `POSTS_MAX_PER_DAY`
@@ -46,6 +47,12 @@ python main.py
 3. Добавьте ENV-переменные из `.env.example`.
 4. Убедитесь, что используется `Procfile` (`worker: python main.py`).
 5. Deploy.
+
+## Надежность в production
+- Клиент LLM использует `base_url=https://openrouter.ai/api/v1`.
+- Для генерации текста и сводок реализован fallback на вторую модель.
+- Обработаны ошибки: `429`, `timeout`, `empty response`.
+- Если OpenRouter/API недоступен, бот использует локальные шаблоны текста и продолжает работу без падения.
 
 ## Важно
 - Бот **не генерирует изображения ИИ**.
