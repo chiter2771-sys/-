@@ -17,6 +17,8 @@ class CommentResponder:
 
     def build_reply(self, text: str) -> str | None:
         low = text.lower()
+        if "где постер" in low or "где арт" in low:
+            return "Реддит опять умер, бот без арта пост кинул. Уже фиксим."
         if any(x in low for x in ("класс", "красиво", "топ", "шик", "люблю")):
             return random.choice(["Спасибо, очень приятно это читать.", "Рады, что откликнулось 💬".replace("💬", "")])
         if "?" in text:

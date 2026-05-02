@@ -11,115 +11,122 @@ logger = logging.getLogger(__name__)
 
 TOPICS = ["anime scenery", "rainy night", "cozy anime night", "melancholy city", "cyberpunk anime"]
 
-HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 VKContentBot/1.2 (+https://vk.com)"}
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 VKAnimeBot/1.0",
+    "Accept": "application/json,text/plain,*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 REDDIT_SOURCES = [
-    "https://www.reddit.com/r/Animewallpaper/top.json?t=day&limit=20",
-    "https://www.reddit.com/r/ImaginarySliceOfLife/top.json?t=day&limit=20",
-    "https://www.reddit.com/r/AnimeART/top.json?t=day&limit=20",
-    "https://www.reddit.com/r/Cyberpunk/top.json?t=week&limit=20",
+    "https://www.reddit.com/r/Animewallpaper/top.json?t=day&limit=30",
+    "https://www.reddit.com/r/ImaginarySliceOfLife/top.json?t=day&limit=30",
 ]
-
-FALLBACK_SOURCE = "https://nekos.best/api/v2/neko"
-
 
 class ImageFetcher:
     def __init__(self, storage_dir: Path, min_w: int, min_h: int):
         self.storage_dir = storage_dir
-        # Keep configured limits but do not over-reject medium images
-        self.min_w = max(480, min_w)
-        self.min_h = max(480, min_h)
+        self.min_w = max(640, min_w)
+        self.min_h = max(640, min_h)
 
     async def fetch_random(self, blocked_urls: set[str] | None = None) -> tuple[str, Path, str, str] | None:
         topic = random.choice(TOPICS)
-        logger.info("Image fetch start. topic=%s", topic)
-        async with aiohttp.ClientSession(headers=HEADERS) as session:
-            candidates = []
-            for src in REDDIT_SOURCES:
-                posts = await self._fetch_reddit_posts(session, src)
-                candidates.extend(posts)
-
-            random.shuffle(candidates)
-            for img_url, width, height in candidates:
-                if blocked_urls and img_url in blocked_urls:
-                    continue
-                if width < self.min_w or height < self.min_h:
-                    logger.info("Rejected reddit image by size %sx%s (< %sx%s): %s", width, height, self.min_w, self.min_h, img_url)
-                    continue
-                out = await self._download(session, img_url)
-                if not out:
-                    continue
-                checksum = hashlib.sha256(out.read_bytes()).hexdigest()
-                logger.info("Image fetched successfully")
-                logger.info("Final image url: %s", img_url)
-                return img_url, out, topic, checksum
-
-            logger.warning("Reddit sources exhausted, switching to fallback")
-            fallback = await self._fetch_nekos_best(session)
-            if fallback:
-                img_url, width, height = fallback
-                if width >= self.min_w and height >= self.min_h:
-                    out = await self._download(session, img_url)
-                    if out:
+        async with aiohttp.ClientSession(headers=HEADERS, timeout=aiohttp.ClientTimeout(total=20)) as session:
+            for attempt in range(3):
+                try:
+                    candidates = await self._collect_candidates(session)
+                    random.shuffle(candidates)
+                    for img_url, width, height in candidates:
+                        if blocked_urls and img_url in blocked_urls:
+                            logger.info("Image skipped (already posted): %s", img_url)
+                            continue
+                        if width < self.min_w or height < self.min_h:
+                            logger.info("Image rejected by size %sx%s: %s", width, height, img_url)
+                            continue
+                        out = await self._download(session, img_url)
+                        if not out:
+                            continue
                         checksum = hashlib.sha256(out.read_bytes()).hexdigest()
-                        logger.info("Image fetched successfully")
-                        logger.info("Final image url: %s", img_url)
                         return img_url, out, topic, checksum
-                logger.warning("Fallback image rejected by dimensions %sx%s (< %sx%s): %s", width, height, self.min_w, self.min_h, img_url)
-
-        logger.error("No image fetched. All sources exhausted.")
+                except Exception as exc:
+                    logger.warning("Image fetch attempt %s failed: %s", attempt + 1, exc)
+            logger.error("No valid image found after retries")
         return None
 
-    async def _fetch_reddit_posts(self, session: aiohttp.ClientSession, src: str) -> list[tuple[str, int, int]]:
-        logger.info("Trying Reddit source: %s", src)
+    async def _collect_candidates(self, session):
+        candidates = []
+        for src in REDDIT_SOURCES:
+            candidates.extend(await self._fetch_reddit_posts(session, src))
+        candidates.extend(await self._fetch_danbooru(session))
+        candidates.extend(await self._fetch_konachan(session))
+        candidates.extend(await self._fetch_safebooru(session))
+        candidates.extend(await self._fetch_wallhaven(session))
+        return candidates
+
+    async def _fetch_reddit_posts(self, session, src):
         try:
-            async with session.get(src, timeout=25) as r:
-                status = r.status
-                logger.info("Reddit HTTP status: %s for %s", status, src)
-                if status == 403:
-                    logger.warning("Reddit 403 for %s, will use fallback sources", src)
+            async with session.get(src) as r:
+                if r.status != 200:
+                    logger.warning("Reddit rejected %s with %s", src, r.status)
                     return []
-                if status != 200:
-                    logger.warning("Reddit non-200 for %s: %s", src, status)
+                data = await r.json(content_type=None)
+        except Exception as exc:
+            logger.warning("Reddit source failed %s: %s", src, exc)
+            return []
+        out = []
+        for child in (((data or {}).get("data") or {}).get("children") or []):
+            post = (child or {}).get("data") or {}
+            if post.get("over_18") or post.get("is_video"):
+                continue
+            img = (((post.get("preview") or {}).get("images") or [{}])[0].get("source") or {})
+            url = (img.get("url") or "").replace("&amp;", "&")
+            if not url:
+                continue
+            out.append((url, int(img.get("width", 0) or 0), int(img.get("height", 0) or 0)))
+        return out
+
+    async def _fetch_danbooru(self, session):
+        url = "https://danbooru.donmai.us/posts.json?limit=20&tags=rating:g+anime+scenery"
+        try:
+            async with session.get(url) as r:
+                if r.status != 200:
                     return []
-                text = await r.text()
-                if not text.strip():
-                    logger.warning("Empty Reddit response: %s", src)
-                    return []
-                data = json.loads(text)
-                logger.info("Image JSON parsed successfully")
-        except Exception as e:
-            logger.error("Reddit source failed: %s (%s)", src, e)
-            logger.error("Traceback:\n%s", traceback.format_exc())
+                data = json.loads(await r.text())
+            return [(x.get("file_url", ""), int(x.get("image_width", 0)), int(x.get("image_height", 0))) for x in data if x.get("file_url")]
+        except Exception:
             return []
 
-        result = []
-        children = (((data or {}).get("data") or {}).get("children") or [])
-        for child in children:
-            post = (child or {}).get("data") or {}
-            if post.get("over_18"):
-                continue
-            if post.get("is_video"):
-                continue
-            url = post.get("url_overridden_by_dest") or post.get("url") or ""
-            lower = url.lower()
-            if any(lower.endswith(ext) for ext in [".jpg", ".jpeg", ".png"]):
-                width, height = self._preview_size(post)
-                if width and height:
-                    result.append((url, width, height))
-                continue
+    async def _fetch_safebooru(self, session):
+        url = "https://safebooru.org/index.php?page=dapi&s=post&q=index&json=1&limit=25&tags=anime+scenery"
+        try:
+            async with session.get(url) as r:
+                if r.status != 200:
+                    return []
+                data = json.loads(await r.text())
+            return [(x.get("file_url", ""), int(x.get("width", 0)), int(x.get("height", 0))) for x in data if x.get("file_url")]
+        except Exception:
+            return []
 
-            if "preview" in post:
-                img = (((post.get("preview") or {}).get("images") or [{}])[0].get("source") or {})
-                purl = (img.get("url") or "").replace("&amp;", "&")
-                if purl and not purl.lower().endswith(".gif"):
-                    width = int(img.get("width", 0) or 0)
-                    height = int(img.get("height", 0) or 0)
-                    if width and height:
-                        result.append((purl, width, height))
+    async def _fetch_konachan(self, session):
+        url = "https://konachan.com/post.json?limit=20&tags=safe+scenery"
+        try:
+            async with session.get(url) as r:
+                if r.status != 200:
+                    return []
+                data = json.loads(await r.text())
+            return [(x.get("file_url", ""), int(x.get("width", 0)), int(x.get("height", 0))) for x in data if x.get("file_url")]
+        except Exception:
+            return []
 
-        logger.info("Reddit parsed candidates: %s from %s", len(result), src)
-        return result
+    async def _fetch_wallhaven(self, session):
+        url = "https://wallhaven.cc/api/v1/search?q=anime+night&categories=100&purity=100&atleast=1280x720"
+        try:
+            async with session.get(url) as r:
+                if r.status != 200:
+                    return []
+                data = json.loads(await r.text())
+            return [(x.get("path", ""), int(x.get("dimension_x", 0)), int(x.get("dimension_y", 0))) for x in (data.get("data") or []) if x.get("path")]
+        except Exception:
+            return []
 
     async def _fetch_nekos_best(self, session: aiohttp.ClientSession) -> tuple[str, int, int] | None:
         try:
@@ -171,22 +178,20 @@ class ImageFetcher:
             return 0, 0
 
     async def _download(self, session: aiohttp.ClientSession, url: str) -> Path | None:
+        if not url:
+            return None
         name = hashlib.md5(url.encode()).hexdigest() + ".jpg"
         path = self.storage_dir / name
         try:
-            async with session.get(url, timeout=25) as r:
-                logger.info("Download HTTP status: %s for %s", r.status, url)
-                content_type = (r.headers.get("Content-Type") or "").lower()
+            async with session.get(url) as r:
                 if r.status != 200:
-                    logger.warning("Download rejected: non-200 status for %s", url)
+                    logger.warning("Download reject status %s: %s", r.status, url)
                     return None
-                if not content_type.startswith("image/"):
-                    logger.warning("Download rejected: invalid content-type %s for %s", content_type, url)
+                if not (r.headers.get("Content-Type", "").lower().startswith("image/")):
+                    logger.warning("Download reject content type: %s", url)
                     return None
                 path.write_bytes(await r.read())
-            logger.info("Download saved: %s", path)
             return path
-        except Exception as e:
-            logger.error("Download failed for %s: %s", url, e)
-            logger.error("Traceback:\n%s", traceback.format_exc())
+        except Exception as exc:
+            logger.warning("Download failed %s: %s", url, exc)
             return None

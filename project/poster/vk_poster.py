@@ -18,12 +18,15 @@ class VKPoster:
 
     def _call(self, method: str, **params: Any) -> dict[str, Any]:
         payload = {"access_token": self.token, "v": self.v, **params}
-        try:
-            response = self.session.post(f"{self.api}/{method}", data=payload, timeout=30)
-            response.raise_for_status()
-        except requests.RequestException as exc:
-            logger.exception("VK transport error on %s", method)
-            raise RuntimeError(f"VK transport error on {method}: {exc}") from exc
+        for attempt in range(3):
+            try:
+                response = self.session.post(f"{self.api}/{method}", data=payload, timeout=30)
+                response.raise_for_status()
+                break
+            except requests.RequestException as exc:
+                if attempt == 2:
+                    logger.exception("VK transport error on %s", method)
+                    raise RuntimeError(f"VK transport error on {method}: {exc}") from exc
 
         try:
             data = response.json()
@@ -100,9 +103,11 @@ class VKPoster:
         logger.info("VK wall.post succeeded: %s", res)
         return int(res["post_id"])
 
-    def get_recent_comments(self, post_id: int, count: int = 20) -> list[dict[str, Any]]:
-        if post_id <= 0:
-            return []
+    def get_recent_posts(self, count: int = 5) -> list[dict[str, Any]]:
+        res = self._call("wall.get", owner_id=-abs(self.group_id), count=count)
+        return res.get("items", []) if isinstance(res, dict) else []
+
+    def get_post_comments(self, post_id: int, count: int = 20) -> list[dict[str, Any]]:
         res = self._call(
             "wall.getComments",
             owner_id=-abs(self.group_id),
@@ -115,12 +120,11 @@ class VKPoster:
         )
         return res.get("items", []) if isinstance(res, dict) else []
 
-    def reply_to_comment(self, post_id: int, comment_id: int, message: str) -> int:
+    def reply_to_comment(self, comment_id: int, message: str) -> int:
         res = self._call(
             "wall.createComment",
             owner_id=-abs(self.group_id),
-            post_id=post_id,
-            reply_to_comment=comment_id,
+            comment_id=comment_id,
             from_group=1,
             message=message,
         )

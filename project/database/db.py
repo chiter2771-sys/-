@@ -104,12 +104,6 @@ class Database:
         with self.conn() as c:
             return c.execute("SELECT 1 FROM comment_replies WHERE comment_id=?", (comment_id,)).fetchone() is not None
 
-
-    def last_post_id(self) -> int | None:
-        with self.conn() as c:
-            row = c.execute("SELECT vk_post_id FROM posts WHERE vk_post_id IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone()
-            return int(row[0]) if row and row[0] is not None else None
-
     def add_comment_reply(self, comment_id: int, user_id: int):
         with self.conn() as c:
             c.execute(

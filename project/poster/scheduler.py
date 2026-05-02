@@ -23,7 +23,6 @@ class BotScheduler:
         self.hashtag_fn = hashtag_fn
         self.scheduler = AsyncIOScheduler(timezone=settings.timezone)
         self.comment_responder = CommentResponder()
-        self._processed_comment_ids: set[int] = set()
 
     def start(self):
         self.scheduler.add_job(self._publish_art_post, CronTrigger(hour=10, minute=0))
@@ -36,7 +35,7 @@ class BotScheduler:
     async def _publish_art(self):
         item = await self.image_fetcher.fetch_random(blocked_urls=self.db.image_urls())
         if not item:
-            logger.warning("No image fetched")
+            logger.warning("Skip art post: no valid image fetched")
             return None
         src, local, topic, checksum = item
         logger.info("image url: %s", src)
@@ -51,10 +50,12 @@ class BotScheduler:
         text = caption.strip()
         if tags:
             text = f"{text}\n\n{tags}" if text else tags
-        attachment = self.vk_poster.upload_photo(str(local))
-        post_id = self.vk_poster.post(text, attachment)
-        # keep last published post id for comment polling
-        self._last_post_id = post_id
+        try:
+            attachment = self.vk_poster.upload_photo(str(local))
+            post_id = self.vk_poster.post(text, attachment)
+        except Exception:
+            logger.exception("VK publish failed, skip this art post")
+            return None
         self.db.add_image(src, str(local), topic, checksum)
         self.db.add_post("art", checksum, caption, post_id)
         logger.info("Published art post %s", post_id)
@@ -85,34 +86,34 @@ class BotScheduler:
         logger.info("Published news post %s", post_id)
 
     async def _process_new_comments(self):
-        if not self.comment_responder.can_reply_now():
-            return
-        last_post = self.db.last_post_id()
-        if not last_post:
-            logger.info("Skip comments check: no posts yet")
-            return
-        for item in self.vk_poster.get_recent_comments(post_id=last_post, count=20):
-            comment_id = int(item.get("id", 0) or 0)
-            user_id = int(item.get("from_id", 0) or 0)
-            text = (item.get("text") or "").strip()
-            if comment_id <= 0 or user_id <= 0:
-                continue
-            if comment_id in self._processed_comment_ids or self.db.has_replied_comment(comment_id):
-                continue
-            if not self.comment_responder.should_reply(text):
-                continue
-            reply = self.comment_responder.build_reply(text)
-            if not reply:
-                continue
-            try:
-                self.vk_poster.reply_to_comment(last_post, comment_id, reply)
-            except Exception:
-                logger.exception("Failed to reply to comment id=%s", comment_id)
-                continue
-            self.db.add_comment_reply(comment_id, user_id)
-            self._processed_comment_ids.add(comment_id)
-            self.comment_responder.mark_replied()
-            break
+        try:
+            if not self.comment_responder.can_reply_now():
+                return
+            posts = self.vk_poster.get_recent_posts(count=5)
+            for post in posts:
+                post_id = int(post.get("id", 0) or 0)
+                if post_id <= 0:
+                    continue
+                for item in self.vk_poster.get_post_comments(post_id=post_id, count=20):
+                    comment_id = int(item.get("id", 0) or 0)
+                    user_id = int(item.get("from_id", 0) or 0)
+                    text = (item.get("text") or "").strip()
+                    if comment_id <= 0 or user_id <= 0:
+                        continue
+                    if self.db.has_replied_comment(comment_id):
+                        continue
+                    if not self.comment_responder.should_reply(text):
+                        continue
+                    reply = self.comment_responder.build_reply(text)
+                    if not reply:
+                        continue
+                    self.vk_poster.reply_to_comment(comment_id, reply)
+                    self.db.add_comment_reply(comment_id, user_id)
+                    self.comment_responder.mark_replied()
+                    logger.info("Replied to comment_id=%s post_id=%s", comment_id, post_id)
+                    return
+        except Exception:
+            logger.exception("Comment polling loop failed")
 
     async def run_forever(self):
         while True:
