@@ -38,12 +38,12 @@ class BotScheduler:
         if not item:
             logger.warning("Skip art post: no valid image fetched")
             return None
-        src, local, topic, checksum = item
+        src, local, topic, checksum, tags = item
         logger.info("image url: %s", src)
         if self.db.has_image_checksum(checksum):
             logger.info("Duplicate image checksum, skip")
             return None
-        caption = await self.text_gen.caption(topic)
+        caption = await self.text_gen.caption(topic, tags)
         logger.info("generated caption: %s", caption)
         if self.db.has_text(caption):
             caption = f"{caption}\n{random.randint(10, 999)}"
@@ -53,6 +53,9 @@ class BotScheduler:
             text = f"{text}\n\n{tags}" if text else tags
         try:
             attachment = self.vk_poster.upload_photo(str(local))
+            if not attachment:
+                logger.warning("Skip art post: upload_photo returned no attachment")
+                return None
             post_id = self.vk_poster.post(text, attachment)
         except Exception:
             logger.exception("VK publish failed, skip this art post")
@@ -116,7 +119,10 @@ class BotScheduler:
                         logger.info("No reply generated id=%s", comment_id)
                         continue
                     logger.info("Reply generated id=%s: %s", comment_id, reply)
-                    self.vk_poster.reply_to_comment(post_id, comment_id, reply)
+                    new_comment_id = self.vk_poster.reply_to_comment(post_id, comment_id, reply)
+                    if new_comment_id <= 0:
+                        logger.warning("Reply failed for comment_id=%s post_id=%s", comment_id, post_id)
+                        continue
                     self.db.add_comment_reply(comment_id, user_id)
                     self.replied_comments.add(comment_id)
                     self.comment_responder.mark_replied()

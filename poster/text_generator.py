@@ -15,10 +15,10 @@ class TextGenerator:
         self.model = model
         self.fallback_model = fallback_model
 
-    async def _generate_with_model(self, model: str, prompt: str, topic: str, style: str) -> str:
+    async def _generate_with_model(self, model: str, prompt: str, topic: str, style: str, tag_context: str) -> str:
         res = await self.client.chat.completions.create(
             model=model,
-            messages=[{"role":"system","content":prompt},{"role":"user","content":f"Тема: {topic}. Стиль: {style}."}],
+            messages=[{"role":"system","content":prompt},{"role":"user","content":f"Тема: {topic}. Стиль: {style}. Детали кадра по тегам: {tag_context}."}],
             max_tokens=80,
             timeout=8,
         )
@@ -39,20 +39,33 @@ class TextGenerator:
         templates = by_topic.get(topic, ["Иногда достаточно просто смотреть.", "Свет в окнах и немного тишины."])
         return random.choice(templates)
 
-    async def _try_models(self, models: Iterable[str], prompt: str, topic: str, style: str) -> str:
+    def _tags_to_context(self, tags: str) -> str:
+        raw = [t.strip().replace("_", " ") for t in (tags or "").split() if t.strip()]
+        stop = {"1girl", "1boy", "solo", "rating:safe", "safe", "anime", "highres"}
+        cleaned = [t for t in raw if t.lower() not in stop and len(t) > 2][:8]
+        return ", ".join(cleaned) if cleaned else "детали не указаны"
+
+    async def _try_models(self, models: Iterable[str], prompt: str, topic: str, style: str, tag_context: str) -> str:
         for model in models:
             for attempt in range(2):
                 try:
-                    return await self._generate_with_model(model, prompt, topic, style)
+                    text = await self._generate_with_model(model, prompt, topic, style, tag_context)
+                    low = text.lower()
+                    if "теплый свет свечи" in low:
+                        raise ValueError("cliche phrase")
+                    return text
                 except (RateLimitError, TimeoutError, APIError, ValueError):
                     await asyncio.sleep(0.7 * (attempt + 1))
                     continue
         return self._local_fallback(topic, style)
 
-    async def caption(self, topic: str) -> str:
+    async def caption(self, topic: str, tags: str = "") -> str:
         style = random.choice(STYLES)
+        tag_context = self._tags_to_context(tags)
         prompt = (
             "Напиши короткую атмосферную подпись для аниме-арта только на русском языке. "
-            "Подстрой тон под тему кадра. Без англицизмов, без пафоса, без штампов."
+            "Подстрой тон под тему кадра и детали из тегов. "
+            "Строго 1 предложение, 8-16 слов. "
+            "Без англицизмов, без пафоса, без штампов, без фраз про свечи, магию и волшебство, если этого нет в тегах."
         )
-        return await self._try_models((self.model, self.fallback_model), prompt, topic, style)
+        return await self._try_models((self.model, self.fallback_model), prompt, topic, style, tag_context)
