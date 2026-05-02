@@ -13,7 +13,7 @@ class ImageFetcher:
     def __init__(self, storage_dir: Path, min_w: int, min_h: int):
         self.storage_dir = storage_dir
 
-    async def fetch_random(self, blocked_urls: set[str] | None = None) -> tuple[str, Path, str, str] | None:
+    async def fetch_random(self, blocked_urls: set[str] | None = None) -> tuple[str, Path, str, str, str] | None:
         async with aiohttp.ClientSession(headers=HEADERS, timeout=aiohttp.ClientTimeout(total=20)) as session:
             candidates = await self._collect_candidates(session)
             random.shuffle(candidates)
@@ -27,7 +27,7 @@ class ImageFetcher:
                     continue
                 topic = self._topic_from_tags(tags)
                 checksum = hashlib.sha256(out.read_bytes()).hexdigest()
-                return url, out, topic, checksum
+                return url, out, topic, checksum, tags
         return None
 
     async def _collect_candidates(self, s):

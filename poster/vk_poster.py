@@ -187,12 +187,16 @@ class VKPoster:
         return res.get("items", []) if isinstance(res, dict) else []
 
     def reply_to_comment(self, post_id: int, comment_id: int, message: str) -> int:
-        res = self._call(
-            "wall.createComment",
-            owner_id=-abs(self.group_id),
-            post_id=post_id,
-            reply_to_comment=comment_id,
-            from_group=1,
-            message=message,
-        )
+        try:
+            res = self._call(
+                "wall.createComment",
+                owner_id=-abs(self.group_id),
+                post_id=post_id,
+                reply_to_comment=comment_id,
+                from_group=1,
+                message=message,
+            )
+        except RuntimeError:
+            logger.exception("VK comment reply failed post_id=%s comment_id=%s", post_id, comment_id)
+            return 0
         return int(res.get("comment_id", 0))
