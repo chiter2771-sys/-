@@ -1,16 +1,20 @@
 import random
 
-BASE_TAGS = ["#anime", "#аниме", "#art", "#арт", "#aesthetic", "#scenery", "#animegirl", "#sakura", "#cyberpunk"]
+
+TOPIC_TAGS = {
+    "anime scenery": ["#анимепейзаж", "#scenery"],
+    "sakura": ["#sakura", "#веснаваниме"],
+    "rainy night": ["#rainynight", "#ночнойдождь"],
+    "cyberpunk anime": ["#cyberpunkanime", "#неоновыйгород"],
+}
 
 
 def generate_hashtags(topic: str) -> str:
-    topic_tags = {
-        "anime scenery": ["#scenery", "#landscape"],
-        "sakura": ["#sakura", "#spring"],
-        "anime girl": ["#animegirl", "#waifu"],
-        "rainy night": ["#rain", "#nightvibes"],
-        "aesthetic anime": ["#aesthetic", "#vibes"],
-        "cyberpunk anime": ["#cyberpunk", "#neon"],
-    }.get(topic, ["#anime"])
-    tags = list(set(topic_tags + random.sample(BASE_TAGS, k=5)))
-    return " ".join(tags[:8])
+    tags = TOPIC_TAGS.get(topic, [])
+    if not tags:
+        return ""
+    # 0-2 релевантных хештега, без generic шума
+    count = random.choice((0, 1, 2))
+    if count == 0:
+        return ""
+    return " ".join(tags[:count])
