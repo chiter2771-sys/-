@@ -1,4 +1,5 @@
 import hashlib
+import json
 import logging
 import random
 import traceback
@@ -35,11 +36,29 @@ class ImageFetcher:
                 logger.info("Trying source: %s", src)
                 try:
                     async with session.get(src, timeout=20) as r:
-                        logger.info("Source HTTP status: %s for %s", r.status, src)
-                        if r.status != 200:
-                            logger.warning("Source rejected due to non-200 status: %s", r.status)
+                        status = r.status
+                        content_type = r.headers.get("Content-Type")
+                        headers = dict(r.headers)
+                        logger.info("Source HTTP status: %s for %s", status, src)
+                        if status != 200:
+                            logger.warning("Source rejected due to non-200 status: %s", status)
                             continue
-                        data = await r.json(content_type=None)
+
+                        text = await r.text()
+                        logger.info("Raw response: %s", text[:500])
+                        if not text.strip():
+                            logger.warning("Empty response body from source: %s", src)
+                            continue
+                        try:
+                            data = json.loads(text)
+                            logger.info("Image JSON parsed successfully")
+                        except json.JSONDecodeError:
+                            logger.error("Invalid JSON from source: %s", src)
+                            logger.error("Status: %s", status)
+                            logger.error("Content-Type: %s", content_type)
+                            logger.error("Headers: %s", headers)
+                            logger.error("Raw response: %s", text[:1000])
+                            continue
 
                     img_url = data.get("url") if isinstance(data, dict) else None
                     if not img_url:
@@ -100,8 +119,12 @@ class ImageFetcher:
         try:
             async with session.get(url, timeout=25) as r:
                 logger.info("Download HTTP status: %s for %s", r.status, url)
+                content_type = (r.headers.get("Content-Type") or "").lower()
                 if r.status != 200:
                     logger.warning("Download rejected: non-200 status for %s", url)
+                    return None
+                if not content_type.startswith("image/"):
+                    logger.warning("Download rejected: invalid content-type %s for %s", content_type, url)
                     return None
                 path.write_bytes(await r.read())
             logger.info("Download saved: %s", path)
