@@ -9,7 +9,7 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
-TOPICS = ["anime scenery", "sakura", "anime girl", "rainy night", "aesthetic anime", "cyberpunk anime"]
+TOPICS = ["anime scenery", "rainy night", "cozy anime night", "melancholy city", "cyberpunk anime"]
 
 HEADERS = {"User-Agent": "Mozilla/5.0 VKContentBot/1.0"}
 
@@ -29,7 +29,7 @@ class ImageFetcher:
         self.min_w = max(700, min_w)
         self.min_h = max(700, min_h)
 
-    async def fetch_random(self) -> tuple[str, Path, str, str] | None:
+    async def fetch_random(self, blocked_urls: set[str] | None = None) -> tuple[str, Path, str, str] | None:
         topic = random.choice(TOPICS)
         logger.info("Image fetch start. topic=%s", topic)
         async with aiohttp.ClientSession(headers=HEADERS) as session:
@@ -40,8 +40,9 @@ class ImageFetcher:
 
             random.shuffle(candidates)
             for img_url, width, height in candidates:
+                if blocked_urls and img_url in blocked_urls:
+                    continue
                 if width < self.min_w or height < self.min_h:
-                    logger.info("Rejected by dimensions %sx%s: %s", width, height, img_url)
                     continue
                 out = await self._download(session, img_url)
                 if not out:
@@ -51,7 +52,7 @@ class ImageFetcher:
                 logger.info("Final image url: %s", img_url)
                 return img_url, out, topic, checksum
 
-            logger.warning("Reddit sources exhausted, switching to fallback: %s", FALLBACK_SOURCE)
+            logger.warning("Reddit sources exhausted, switching to fallback")
             fallback = await self._fetch_nekos_best(session)
             if fallback:
                 img_url, width, height = fallback

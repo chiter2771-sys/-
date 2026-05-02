@@ -99,3 +99,25 @@ class VKPoster:
             raise RuntimeError(f"VK wall.post malformed response: {res}")
         logger.info("VK wall.post succeeded: %s", res)
         return int(res["post_id"])
+
+    def get_recent_comments(self, count: int = 20) -> list[dict[str, Any]]:
+        res = self._call(
+            "wall.getComments",
+            owner_id=-abs(self.group_id),
+            need_likes=0,
+            sort="desc",
+            count=count,
+            preview_length=0,
+            extended=0,
+        )
+        return res.get("items", []) if isinstance(res, dict) else []
+
+    def reply_to_comment(self, comment_id: int, message: str) -> int:
+        res = self._call(
+            "wall.createComment",
+            owner_id=-abs(self.group_id),
+            comment_id=comment_id,
+            from_group=1,
+            message=message,
+        )
+        return int(res.get("comment_id", 0))

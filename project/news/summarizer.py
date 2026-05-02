@@ -1,3 +1,4 @@
+import asyncio
 from asyncio import TimeoutError
 from typing import Iterable
 
@@ -12,13 +13,13 @@ class NewsSummarizer:
         self.fallback_model = fallback_model
 
     async def _summarize_with_model(self, model: str, title: str, summary: str, link: str, prompt: str) -> str:
-        res = await self.client.responses.create(
+        res = await self.client.chat.completions.create(
             model=model,
-            input=[{"role": "system", "content": prompt}, {"role": "user", "content": f"{title}\n\n{summary}\n\n{link}"}],
-            max_output_tokens=180,
+            messages=[{"role": "system", "content": prompt}, {"role": "user", "content": f"{title}\n\n{summary}\n\n{link}"}],
+            max_tokens=220,
             timeout=25,
         )
-        text = (res.output_text or "").strip()
+        text = ((res.choices[0].message.content if res.choices else "") or "").strip()
         if not text:
             raise ValueError("empty response")
         return text
@@ -29,16 +30,12 @@ class NewsSummarizer:
 
     async def _try_models(self, models: Iterable[str], title: str, summary: str, link: str, prompt: str) -> str:
         for model in models:
-            try:
-                return await self._summarize_with_model(model, title, summary, link, prompt)
-            except RateLimitError:
-                continue
-            except TimeoutError:
-                continue
-            except APIError:
-                continue
-            except ValueError:
-                continue
+            for attempt in range(3):
+                try:
+                    return await self._summarize_with_model(model, title, summary, link, prompt)
+                except (RateLimitError, TimeoutError, APIError, ValueError):
+                    await asyncio.sleep(1.2 * (attempt + 1))
+                    continue
         return self._local_fallback(title, link)
 
     async def summarize(self, title: str, summary: str, link: str) -> str:
