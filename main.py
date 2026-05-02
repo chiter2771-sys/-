@@ -31,6 +31,19 @@ async def main():
     db = Database(settings.db_path)
     cleanup_storage(settings.storage_path, settings.cleanup_keep_files)
 
+    # Startup connectivity check for image sources (does not stop scheduler)
+    try:
+        probe = await ImageFetcher(settings.storage_path, settings.min_image_width, settings.min_image_height).fetch_random()
+        if probe:
+            image_url, local_path, _, _ = probe
+            logging.info("Startup image fetch URL: %s", image_url)
+            logging.info("Startup image download path: %s", local_path)
+            logging.info("Image fetched successfully")
+        else:
+            logging.error("Startup image probe failed: no image fetched")
+    except Exception:
+        logging.exception("Startup image probe failed with exception")
+
     scheduler = BotScheduler(
         settings=settings,
         db=db,
