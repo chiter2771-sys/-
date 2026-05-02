@@ -40,6 +40,11 @@ async def main():
         vk_poster=VKPoster(settings.vk_token, settings.vk_group_id),
         hashtag_fn=generate_hashtags,
     )
+    if settings.test_post_now:
+        try:
+            await scheduler.publish_test_post_now()
+        except Exception:
+            logging.exception("Test post failed")
     scheduler.start()
     await scheduler.run_forever()
 

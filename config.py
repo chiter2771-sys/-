@@ -20,6 +20,7 @@ class Settings:
     min_image_width: int
     min_image_height: int
     cleanup_keep_files: int
+    test_post_now: bool
 
 
 def _require(name: str) -> str:
@@ -48,4 +49,5 @@ def load_settings() -> Settings:
         min_image_width=int(os.getenv("MIN_IMAGE_WIDTH", "1000")),
         min_image_height=int(os.getenv("MIN_IMAGE_HEIGHT", "1000")),
         cleanup_keep_files=int(os.getenv("CLEANUP_KEEP_FILES", "150")),
+        test_post_now=os.getenv("TEST_POST_NOW", "false").lower() == "true",
     )

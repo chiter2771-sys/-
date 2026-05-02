@@ -1,4 +1,9 @@
+import logging
+
 import requests
+
+
+logger = logging.getLogger(__name__)
 
 
 class VKPoster:
@@ -20,6 +25,7 @@ class VKPoster:
         server = self._call("photos.getWallUploadServer", group_id=self.group_id)
         with open(file_path, "rb") as f:
             upload = requests.post(server["upload_url"], files={"photo": f}, timeout=60).json()
+        logger.info("VK upload status: %s", "ok" if "photo" in upload else upload)
         saved = self._call(
             "photos.saveWallPhoto",
             group_id=self.group_id,
@@ -37,4 +43,5 @@ class VKPoster:
             message=message,
             attachments=attachment,
         )
+        logger.info("wall.post response: %s", res)
         return int(res["post_id"])

@@ -37,15 +37,18 @@ class BotScheduler:
             self.scheduler.add_job(self._publish_news_post, "cron", hour=random.randint(12, 20), minute=random.randint(0, 59))
         logger.info("Planned %s art jobs for %s", jobs, datetime.now().date())
 
-    async def _publish_art_post(self):
+    async def _publish_art(self):
         item = await self.image_fetcher.fetch_random()
         if not item:
             logger.warning("No image fetched")
-            return
+            return None
         src, local, topic, checksum = item
+        logger.info("image url: %s", src)
         if self.db.has_image_checksum(checksum):
-            return
+            logger.info("Duplicate image checksum, skip")
+            return None
         caption = await self.text_gen.caption(topic)
+        logger.info("generated caption: %s", caption)
         if self.db.has_text(caption):
             caption = f"{caption}\n{random.randint(10, 999)}"
         text = f"{caption}\n\n{self.hashtag_fn(topic)}"
@@ -54,6 +57,15 @@ class BotScheduler:
         self.db.add_image(src, str(local), topic, checksum)
         self.db.add_post("art", checksum, caption, post_id)
         logger.info("Published art post %s", post_id)
+        return post_id
+
+    async def _publish_art_post(self):
+        await self._publish_art()
+
+    async def publish_test_post_now(self):
+        post_id = await self._publish_art()
+        if post_id is not None:
+            logger.info("Test post published successfully")
 
     async def _publish_news_post(self):
         entries = fetch_entries()
