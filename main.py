@@ -48,8 +48,8 @@ async def main():
         settings=settings,
         db=db,
         image_fetcher=ImageFetcher(settings.storage_path, settings.min_image_width, settings.min_image_height),
-        text_gen=TextGenerator(settings.openai_api_key, settings.openai_model),
-        news_summarizer=NewsSummarizer(settings.openai_api_key, settings.openai_model),
+        text_gen=TextGenerator(settings.openrouter_api_key, settings.openrouter_model, settings.openrouter_fallback_model),
+        news_summarizer=NewsSummarizer(settings.openrouter_api_key, settings.openrouter_model, settings.openrouter_fallback_model),
         vk_poster=VKPoster(settings.vk_token, settings.vk_group_id),
         hashtag_fn=generate_hashtags,
     )

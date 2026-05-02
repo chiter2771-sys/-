@@ -7,8 +7,9 @@ from pathlib import Path
 class Settings:
     vk_token: str
     vk_group_id: int
-    openai_api_key: str
-    openai_model: str
+    openrouter_api_key: str
+    openrouter_model: str
+    openrouter_fallback_model: str
     db_path: str
     storage_path: Path
     timezone: str
@@ -20,6 +21,7 @@ class Settings:
     min_image_width: int
     min_image_height: int
     cleanup_keep_files: int
+    test_post_now: bool
 
 
 def _require(name: str) -> str:
@@ -30,14 +32,15 @@ def _require(name: str) -> str:
 
 
 def load_settings() -> Settings:
-    storage = Path(os.getenv("STORAGE_PATH", "project/storage"))
+    storage = Path(os.getenv("STORAGE_PATH", "storage"))
     storage.mkdir(parents=True, exist_ok=True)
     return Settings(
         vk_token=_require("VK_TOKEN"),
         vk_group_id=int(_require("VK_GROUP_ID")),
-        openai_api_key=_require("OPENAI_API_KEY"),
-        openai_model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
-        db_path=os.getenv("DB_PATH", "project/database/bot.db"),
+        openrouter_api_key=_require("OPENROUTER_API_KEY"),
+        openrouter_model=os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-chat-v3-0324:free"),
+        openrouter_fallback_model=os.getenv("OPENROUTER_FALLBACK_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
+        db_path=os.getenv("DB_PATH", "database/bot.db"),
         storage_path=storage,
         timezone=os.getenv("TIMEZONE", "Europe/Moscow"),
         posting_start_hour=int(os.getenv("POSTING_START_HOUR", "9")),
@@ -48,4 +51,5 @@ def load_settings() -> Settings:
         min_image_width=int(os.getenv("MIN_IMAGE_WIDTH", "1000")),
         min_image_height=int(os.getenv("MIN_IMAGE_HEIGHT", "1000")),
         cleanup_keep_files=int(os.getenv("CLEANUP_KEEP_FILES", "150")),
+        test_post_now=os.getenv("TEST_POST_NOW", "false").lower() == "true",
     )
