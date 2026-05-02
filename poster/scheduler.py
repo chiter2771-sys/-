@@ -53,6 +53,9 @@ class BotScheduler:
             text = f"{text}\n\n{tags}" if text else tags
         try:
             attachment = self.vk_poster.upload_photo(str(local))
+            if not attachment:
+                logger.warning("Skip art post: upload_photo returned no attachment")
+                return None
             post_id = self.vk_poster.post(text, attachment)
         except Exception:
             logger.exception("VK publish failed, skip this art post")
