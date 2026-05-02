@@ -13,7 +13,7 @@ class ImageFetcher:
     def __init__(self, storage_dir: Path, min_w: int, min_h: int):
         self.storage_dir = storage_dir
 
-    async def fetch_random(self, blocked_urls: set[str] | None = None) -> tuple[str, Path, str, str] | None:
+    async def fetch_random(self, blocked_urls: set[str] | None = None) -> tuple[str, Path, str, str, str] | None:
         async with aiohttp.ClientSession(headers=HEADERS, timeout=aiohttp.ClientTimeout(total=20)) as session:
             candidates = await self._collect_candidates(session)
             random.shuffle(candidates)
@@ -22,12 +22,14 @@ class ImageFetcher:
                     continue
                 if not self._is_quality_ok(url, w, h):
                     continue
+                if not self._is_anime_art(tags, url):
+                    continue
                 out = await self._download(session, url)
                 if not out:
                     continue
                 topic = self._topic_from_tags(tags)
                 checksum = hashlib.sha256(out.read_bytes()).hexdigest()
-                return url, out, topic, checksum
+                return url, out, topic, checksum, tags
         return None
 
     async def _collect_candidates(self, s):
@@ -43,10 +45,28 @@ class ImageFetcher:
             return False
         if w >= h and (w < 1200 or h < 700):
             return False
+        ratio = max(w, h) / max(min(w, h), 1)
+        if ratio > 2.2:
+            return False
         low=url.lower()
         if any(x in low for x in ("unsplash","pexels","getty","shutterstock")):
             return False
         return True
+
+    def _is_anime_art(self, tags: str, url: str) -> bool:
+        t = (tags or "").lower()
+        u = (url or "").lower()
+        bad = (
+            "figure", "figurine", "toy", "merch", "cosplay", "live_action", "realistic",
+            "3d", "cgi", "render", "logo", "watermark", "text", "screenshot", "comic",
+            "manga_page", "panel", "model_kit",
+        )
+        if any(x in t for x in bad):
+            return False
+        if any(x in u for x in ("figure", "figurine", "toy", "merch", "logo")):
+            return False
+        good = ("1girl", "1boy", "anime", "original", "illustration", "solo")
+        return any(x in t for x in good)
 
     def _topic_from_tags(self, tags: str) -> str:
         t = tags.lower()

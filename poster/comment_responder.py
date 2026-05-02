@@ -27,11 +27,11 @@ COMMENT_REPLY_PROMPT = """
 class CommentResponder:
     def __init__(self):
         self.last_reply_at: datetime | None = None
-        self.cooldown = timedelta(minutes=15)
+        self.cooldown = timedelta(minutes=2)
 
     def should_reply(self, text: str) -> bool:
         low = (text or "").lower().strip()
-        if not low or len(low) < 2:
+        if not low or len(low) < 1:
             return False
         if any(x in low for x in ("http://", "https://", "подпишись", "реклама", "скам")):
             return False
