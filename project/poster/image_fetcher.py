@@ -2,6 +2,7 @@ import hashlib
 import json
 import logging
 import random
+import traceback
 from pathlib import Path
 
 import aiohttp
