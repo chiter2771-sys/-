@@ -4,7 +4,7 @@ from asyncio import TimeoutError
 from typing import Iterable
 
 from openai import AsyncOpenAI
-from openai import APIError, RateLimitError
+from openai import APIError, APIStatusError, RateLimitError
 
 STYLES = ["anime aesthetic", "internet melancholy", "late night vibes", "спокойный минимализм"]
 
@@ -41,8 +41,14 @@ class TextGenerator:
             for attempt in range(3):
                 try:
                     return await self._generate_with_model(model, prompt, topic, style)
+                except APIStatusError as e:
+                    # OpenRouter may return temporary 404/429; retry with backoff.
+                    if e.status_code in (404, 429):
+                        await asyncio.sleep(1.5 * (attempt + 1))
+                        continue
+                    break
                 except (RateLimitError, TimeoutError, APIError, ValueError):
-                    await asyncio.sleep(1.2 * (attempt + 1))
+                    await asyncio.sleep(1.5 * (attempt + 1))
                     continue
         return self._local_fallback(topic, style)
 
