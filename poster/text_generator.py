@@ -29,13 +29,14 @@ class TextGenerator:
 
     @staticmethod
     def _local_fallback(topic: str, style: str) -> str:
-        templates = [
-            "Ночной свет и тишина.",
-            "Город уже спит.",
-            "Такие кадры хочется сохранить.",
-            "Тишина после дождя.",
-            "Сегодня что-то особенно спокойно.",
-        ]
+        by_topic = {
+            "cozy": ["Теплый свет и спокойный вечер.", "Здесь легко задержаться взглядом."],
+            "melancholy": ["После дождя всегда тише.", "Ночной город снова молчит."],
+            "action": ["В этом кадре много движения.", "Секунда перед рывком."],
+            "fantasy": ["Как будто из старой сказки.", "Немного магии в обычном вечере."],
+            "cyberpunk": ["Неон и тишина рядом.", "Город светится, но не спешит."],
+        }
+        templates = by_topic.get(topic, ["Иногда достаточно просто смотреть.", "Свет в окнах и немного тишины."])
         return random.choice(templates)
 
     async def _try_models(self, models: Iterable[str], prompt: str, topic: str, style: str) -> str:
@@ -51,7 +52,7 @@ class TextGenerator:
     async def caption(self, topic: str) -> str:
         style = random.choice(STYLES)
         prompt = (
-            "Напиши короткую подпись для поста с аниме-артом только на русском языке. "
-            "Без английских слов, без пафоса, без длинных фраз. Иногда верни пустую строку."
+            "Напиши короткую атмосферную подпись для аниме-арта только на русском языке. "
+            "Подстрой тон под тему кадра. Без англицизмов, без пафоса, без штампов."
         )
         return await self._try_models((self.model, self.fallback_model), prompt, topic, style)
