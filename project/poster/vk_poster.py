@@ -125,11 +125,12 @@ class VKPoster:
         )
         return res.get("items", []) if isinstance(res, dict) else []
 
-    def reply_to_comment(self, comment_id: int, message: str) -> int:
+    def reply_to_comment(self, post_id: int, comment_id: int, message: str) -> int:
         res = self._call(
             "wall.createComment",
             owner_id=-abs(self.group_id),
-            comment_id=comment_id,
+            post_id=post_id,
+            reply_to_comment=comment_id,
             from_group=1,
             message=message,
         )

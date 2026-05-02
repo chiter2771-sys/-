@@ -23,6 +23,7 @@ class BotScheduler:
         self.hashtag_fn = hashtag_fn
         self.scheduler = AsyncIOScheduler(timezone=settings.timezone)
         self.comment_responder = CommentResponder()
+        self.replied_comments: set[int] = set()
 
     def start(self):
         self.scheduler.add_job(self._publish_art_post, CronTrigger(hour=10, minute=0))
@@ -105,6 +106,8 @@ class BotScheduler:
                         continue
                     if self.db.has_replied_comment(comment_id):
                         continue
+                    if comment_id in self.replied_comments:
+                        continue
                     if not self.comment_responder.should_reply(text):
                         logger.info("Comment filtered id=%s", comment_id)
                         continue
@@ -113,8 +116,9 @@ class BotScheduler:
                         logger.info("No reply generated id=%s", comment_id)
                         continue
                     logger.info("Reply generated id=%s: %s", comment_id, reply)
-                    self.vk_poster.reply_to_comment(comment_id, reply)
+                    self.vk_poster.reply_to_comment(post_id, comment_id, reply)
                     self.db.add_comment_reply(comment_id, user_id)
+                    self.replied_comments.add(comment_id)
                     self.comment_responder.mark_replied()
                     logger.info("Replied to comment_id=%s post_id=%s", comment_id, post_id)
                     return
