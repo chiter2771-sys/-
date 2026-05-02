@@ -32,7 +32,7 @@ python main.py
 - `OPENROUTER_API_KEY`
 
 Дополнительные:
-- `OPENROUTER_MODEL` (по умолчанию `deepseek/deepseek-chat-v3-0324:free`)
+- `OPENROUTER_MODEL` (по умолчанию `openai/gpt-4.1-mini`)
 - `OPENROUTER_FALLBACK_MODEL` (по умолчанию `meta-llama/llama-3.3-70b-instruct:free`)
 - `TIMEZONE`
 - `POSTING_START_HOUR`, `POSTING_END_HOUR`

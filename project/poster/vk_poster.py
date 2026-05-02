@@ -53,22 +53,27 @@ class VKPoster:
         if not upload_url:
             raise RuntimeError("VK did not return upload_url")
 
-        try:
-            with open(file_path, "rb") as f:
-                upload_response = self.session.post(upload_url, files={"photo": f}, timeout=60)
-                upload_response.raise_for_status()
-                upload = upload_response.json()
-        except requests.RequestException as exc:
-            logger.exception("VK upload transport error")
-            raise RuntimeError(f"VK upload transport error: {exc}") from exc
-        except ValueError as exc:
-            logger.error("VK upload returned non-JSON response")
-            raise RuntimeError("VK upload returned invalid JSON") from exc
+        upload = None
+        for attempt in range(3):
+            try:
+                with open(file_path, "rb") as f:
+                    upload_response = self.session.post(upload_url, files={"photo": f}, timeout=60)
+                    upload_response.raise_for_status()
+                    logger.info("VK raw upload response: %s", upload_response.text[:1000])
+                    upload = upload_response.json()
+                break
+            except requests.RequestException as exc:
+                if attempt == 2:
+                    logger.exception("VK upload transport error")
+                    raise RuntimeError(f"VK upload transport error: {exc}") from exc
+            except ValueError as exc:
+                logger.error("VK upload returned non-JSON response: %s", upload_response.text[:500] if 'upload_response' in locals() else '')
+                raise RuntimeError("VK upload returned invalid JSON") from exc
 
         if upload.get("error"):
             logger.error("VK upload API-level error: %s", upload)
             raise RuntimeError(f"VK upload failed: {upload}")
-        if not all(k in upload for k in ("photo", "server", "hash")):
+        if not all(k in upload for k in ("photo", "server", "hash")) or not upload.get("photo"):
             logger.error("VK upload missing expected fields: %s", upload)
             raise RuntimeError(f"VK upload malformed response: {upload}")
 

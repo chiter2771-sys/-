@@ -38,7 +38,7 @@ def load_settings() -> Settings:
         vk_token=_require("VK_TOKEN"),
         vk_group_id=int(_require("VK_GROUP_ID")),
         openrouter_api_key=_require("OPENROUTER_API_KEY"),
-        openrouter_model=os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-chat-v3-0324:free"),
+        openrouter_model=os.getenv("OPENROUTER_MODEL", "openai/gpt-4.1-mini"),
         openrouter_fallback_model=os.getenv("OPENROUTER_FALLBACK_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
         db_path=os.getenv("DB_PATH", "database/bot.db"),
         storage_path=storage,

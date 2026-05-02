@@ -99,7 +99,9 @@ class BotScheduler:
                     user_id = int(item.get("from_id", 0) or 0)
                     text = (item.get("text") or "").strip()
                     logger.info("Found comment id=%s post_id=%s", comment_id, post_id)
-                    if comment_id <= 0 or user_id <= 0:
+                    if comment_id <= 0 or user_id == 0:
+                        continue
+                    if user_id == -abs(self.settings.vk_group_id):
                         continue
                     if self.db.has_replied_comment(comment_id):
                         continue
