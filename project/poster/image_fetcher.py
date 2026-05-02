@@ -2,6 +2,7 @@ import hashlib
 import json
 import logging
 import random
+import traceback
 from pathlib import Path
 
 import aiohttp
@@ -126,6 +127,55 @@ class ImageFetcher:
             return [(x.get("path", ""), int(x.get("dimension_x", 0)), int(x.get("dimension_y", 0))) for x in (data.get("data") or []) if x.get("path")]
         except Exception:
             return []
+
+    async def _fetch_nekos_best(self, session: aiohttp.ClientSession) -> tuple[str, int, int] | None:
+        try:
+            async with session.get(FALLBACK_SOURCE, timeout=25) as r:
+                logger.info("Fallback HTTP status: %s for %s", r.status, FALLBACK_SOURCE)
+                if r.status != 200:
+                    return None
+                text = await r.text()
+                if not text.strip():
+                    return None
+                data = json.loads(text)
+                logger.info("Image JSON parsed successfully")
+                results = data.get("results") or []
+                if not results:
+                    return None
+                url = results[0].get("url")
+                if not url:
+                    return None
+                width = int(results[0].get("width", 0) or 0)
+                height = int(results[0].get("height", 0) or 0)
+                if (not width or not height):
+                    width, height = await self._probe_dimensions(session, url)
+                return url, width, height
+        except Exception as e:
+            logger.error("Fallback source failed: %s", e)
+            logger.error("Traceback:\n%s", traceback.format_exc())
+            return None
+
+    def _preview_size(self, post: dict) -> tuple[int, int]:
+        preview = post.get("preview") or {}
+        images = preview.get("images") or []
+        if not images:
+            return 0, 0
+        source = images[0].get("source") or {}
+        return int(source.get("width", 0) or 0), int(source.get("height", 0) or 0)
+
+    async def _probe_dimensions(self, session: aiohttp.ClientSession, url: str) -> tuple[int, int]:
+        try:
+            from PIL import Image
+            from io import BytesIO
+
+            async with session.get(url, timeout=25) as r:
+                if r.status != 200:
+                    return 0, 0
+                raw = await r.read()
+            img = Image.open(BytesIO(raw))
+            return img.size
+        except Exception:
+            return 0, 0
 
     async def _download(self, session: aiohttp.ClientSession, url: str) -> Path | None:
         if not url:
