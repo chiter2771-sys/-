@@ -11,107 +11,157 @@ logger = logging.getLogger(__name__)
 
 TOPICS = ["anime scenery", "sakura", "anime girl", "rainy night", "aesthetic anime", "cyberpunk anime"]
 
-HEADERS = {"User-Agent": "Mozilla/5.0"}
+HEADERS = {"User-Agent": "Mozilla/5.0 VKContentBot/1.0"}
 
-# Temporary test-safe sources only (as requested)
-SOURCES = [
-    "https://api.waifu.pics/sfw/waifu",
-    "https://api.waifu.pics/sfw/shinobu",
-    "https://api.waifu.pics/sfw/neko",
+REDDIT_SOURCES = [
+    "https://www.reddit.com/r/Animewallpaper/top.json?t=day&limit=20",
+    "https://www.reddit.com/r/ImaginarySliceOfLife/top.json?t=day&limit=20",
+    "https://www.reddit.com/r/AnimeART/top.json?t=day&limit=20",
+    "https://www.reddit.com/r/Cyberpunk/top.json?t=week&limit=20",
 ]
+
+FALLBACK_SOURCE = "https://nekos.best/api/v2/neko"
 
 
 class ImageFetcher:
     def __init__(self, storage_dir: Path, min_w: int, min_h: int):
         self.storage_dir = storage_dir
-        self.min_w = min_w
-        self.min_h = min_h
+        self.min_w = max(700, min_w)
+        self.min_h = max(700, min_h)
 
     async def fetch_random(self) -> tuple[str, Path, str, str] | None:
         topic = random.choice(TOPICS)
-        random.shuffle(SOURCES)
         logger.info("Image fetch start. topic=%s", topic)
         async with aiohttp.ClientSession(headers=HEADERS) as session:
-            for src in SOURCES:
-                logger.info("Trying source: %s", src)
-                try:
-                    async with session.get(src, timeout=20) as r:
-                        status = r.status
-                        content_type = r.headers.get("Content-Type")
-                        headers = dict(r.headers)
-                        logger.info("Source HTTP status: %s for %s", status, src)
-                        if status != 200:
-                            logger.warning("Source rejected due to non-200 status: %s", status)
-                            continue
+            candidates = []
+            for src in REDDIT_SOURCES:
+                posts = await self._fetch_reddit_posts(session, src)
+                candidates.extend(posts)
 
-                        text = await r.text()
-                        logger.info("Raw response: %s", text[:500])
-                        if not text.strip():
-                            logger.warning("Empty response body from source: %s", src)
-                            continue
-                        try:
-                            data = json.loads(text)
-                            logger.info("Image JSON parsed successfully")
-                        except json.JSONDecodeError:
-                            logger.error("Invalid JSON from source: %s", src)
-                            logger.error("Status: %s", status)
-                            logger.error("Content-Type: %s", content_type)
-                            logger.error("Headers: %s", headers)
-                            logger.error("Raw response: %s", text[:1000])
-                            continue
-
-                    img_url = data.get("url") if isinstance(data, dict) else None
-                    if not img_url:
-                        logger.warning("Source %s rejected: no image URL in payload: %s", src, data)
-                        continue
-
-                    logger.info("Candidate image url: %s", img_url)
-                    out = await self._download(session, img_url)
-                    if not out:
-                        logger.warning("Image rejected: download failed for %s", img_url)
-                        continue
-
-                    if not await self._check_size(session, img_url):
-                        logger.warning(
-                            "Image rejected by size check (<%sx%s): %s",
-                            self.min_w,
-                            self.min_h,
-                            img_url,
-                        )
-                        out.unlink(missing_ok=True)
-                        continue
-
-                    checksum = hashlib.sha256(out.read_bytes()).hexdigest()
-                    logger.info("Image fetched successfully")
-                    logger.info("Final image url: %s", img_url)
-                    return img_url, out, topic, checksum
-                except Exception as e:
-                    logger.error("Source %s failed: %s", src, e)
-                    logger.error("Traceback:\n%s", traceback.format_exc())
+            random.shuffle(candidates)
+            for img_url, width, height in candidates:
+                if width < self.min_w or height < self.min_h:
+                    logger.info("Rejected by dimensions %sx%s: %s", width, height, img_url)
                     continue
+                out = await self._download(session, img_url)
+                if not out:
+                    continue
+                checksum = hashlib.sha256(out.read_bytes()).hexdigest()
+                logger.info("Image fetched successfully")
+                logger.info("Final image url: %s", img_url)
+                return img_url, out, topic, checksum
+
+            logger.warning("Reddit sources exhausted, switching to fallback: %s", FALLBACK_SOURCE)
+            fallback = await self._fetch_nekos_best(session)
+            if fallback:
+                img_url, width, height = fallback
+                if width >= self.min_w and height >= self.min_h:
+                    out = await self._download(session, img_url)
+                    if out:
+                        checksum = hashlib.sha256(out.read_bytes()).hexdigest()
+                        logger.info("Image fetched successfully")
+                        logger.info("Final image url: %s", img_url)
+                        return img_url, out, topic, checksum
+                logger.warning("Fallback image rejected by dimensions %sx%s: %s", width, height, img_url)
 
         logger.error("No image fetched. All sources exhausted.")
         return None
 
-    async def _check_size(self, session: aiohttp.ClientSession, url: str) -> bool:
+    async def _fetch_reddit_posts(self, session: aiohttp.ClientSession, src: str) -> list[tuple[str, int, int]]:
+        logger.info("Trying Reddit source: %s", src)
+        try:
+            async with session.get(src, timeout=25) as r:
+                status = r.status
+                logger.info("Reddit HTTP status: %s for %s", status, src)
+                if status != 200:
+                    return []
+                text = await r.text()
+                if not text.strip():
+                    logger.warning("Empty Reddit response: %s", src)
+                    return []
+                data = json.loads(text)
+                logger.info("Image JSON parsed successfully")
+        except Exception as e:
+            logger.error("Reddit source failed: %s (%s)", src, e)
+            logger.error("Traceback:\n%s", traceback.format_exc())
+            return []
+
+        result = []
+        children = (((data or {}).get("data") or {}).get("children") or [])
+        for child in children:
+            post = (child or {}).get("data") or {}
+            if post.get("over_18"):
+                continue
+            if post.get("is_video"):
+                continue
+            url = post.get("url_overridden_by_dest") or post.get("url") or ""
+            lower = url.lower()
+            if any(lower.endswith(ext) for ext in [".jpg", ".jpeg", ".png"]):
+                width, height = self._preview_size(post)
+                if width and height:
+                    result.append((url, width, height))
+                continue
+
+            if "preview" in post:
+                img = (((post.get("preview") or {}).get("images") or [{}])[0].get("source") or {})
+                purl = (img.get("url") or "").replace("&amp;", "&")
+                if purl and not purl.lower().endswith(".gif"):
+                    width = int(img.get("width", 0) or 0)
+                    height = int(img.get("height", 0) or 0)
+                    if width and height:
+                        result.append((purl, width, height))
+
+        logger.info("Reddit parsed candidates: %s from %s", len(result), src)
+        return result
+
+    async def _fetch_nekos_best(self, session: aiohttp.ClientSession) -> tuple[str, int, int] | None:
+        try:
+            async with session.get(FALLBACK_SOURCE, timeout=25) as r:
+                logger.info("Fallback HTTP status: %s for %s", r.status, FALLBACK_SOURCE)
+                if r.status != 200:
+                    return None
+                text = await r.text()
+                if not text.strip():
+                    return None
+                data = json.loads(text)
+                logger.info("Image JSON parsed successfully")
+                results = data.get("results") or []
+                if not results:
+                    return None
+                url = results[0].get("url")
+                if not url:
+                    return None
+                width = int(results[0].get("width", 0) or 0)
+                height = int(results[0].get("height", 0) or 0)
+                if (not width or not height):
+                    width, height = await self._probe_dimensions(session, url)
+                return url, width, height
+        except Exception as e:
+            logger.error("Fallback source failed: %s", e)
+            logger.error("Traceback:\n%s", traceback.format_exc())
+            return None
+
+    def _preview_size(self, post: dict) -> tuple[int, int]:
+        preview = post.get("preview") or {}
+        images = preview.get("images") or []
+        if not images:
+            return 0, 0
+        source = images[0].get("source") or {}
+        return int(source.get("width", 0) or 0), int(source.get("height", 0) or 0)
+
+    async def _probe_dimensions(self, session: aiohttp.ClientSession, url: str) -> tuple[int, int]:
         try:
             from PIL import Image
             from io import BytesIO
 
             async with session.get(url, timeout=25) as r:
-                logger.info("Size-check HTTP status: %s for %s", r.status, url)
                 if r.status != 200:
-                    logger.warning("Size-check rejected: non-200 status for %s", url)
-                    return False
+                    return 0, 0
                 raw = await r.read()
             img = Image.open(BytesIO(raw))
-            width, height = img.size
-            logger.info("Image dimensions: %sx%s for %s", width, height, url)
-            return width >= self.min_w and height >= self.min_h
-        except Exception as e:
-            logger.error("Size-check failed for %s: %s", url, e)
-            logger.error("Traceback:\n%s", traceback.format_exc())
-            return False
+            return img.size
+        except Exception:
+            return 0, 0
 
     async def _download(self, session: aiohttp.ClientSession, url: str) -> Path | None:
         name = hashlib.md5(url.encode()).hexdigest() + ".jpg"
