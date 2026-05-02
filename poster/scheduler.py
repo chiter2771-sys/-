@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import random
+from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -30,7 +31,7 @@ class BotScheduler:
         self.scheduler.add_job(self._publish_art_post, CronTrigger(hour=17, minute=0))
         self.scheduler.add_job(self._publish_art_post, CronTrigger(hour=0, minute=0))
         self.scheduler.add_job(self._publish_news_post, "interval", minutes=90)
-        self.scheduler.add_job(self._process_new_comments, "interval", minutes=5)
+        self.scheduler.add_job(self._process_new_comments, "interval", minutes=1, next_run_time=datetime.now(self.scheduler.timezone))
         self.scheduler.start()
 
     async def _publish_art(self):

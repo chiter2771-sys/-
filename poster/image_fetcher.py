@@ -22,6 +22,8 @@ class ImageFetcher:
                     continue
                 if not self._is_quality_ok(url, w, h):
                     continue
+                if not self._is_anime_art(tags, url):
+                    continue
                 out = await self._download(session, url)
                 if not out:
                     continue
@@ -43,10 +45,28 @@ class ImageFetcher:
             return False
         if w >= h and (w < 1200 or h < 700):
             return False
+        ratio = max(w, h) / max(min(w, h), 1)
+        if ratio > 2.2:
+            return False
         low=url.lower()
         if any(x in low for x in ("unsplash","pexels","getty","shutterstock")):
             return False
         return True
+
+    def _is_anime_art(self, tags: str, url: str) -> bool:
+        t = (tags or "").lower()
+        u = (url or "").lower()
+        bad = (
+            "figure", "figurine", "toy", "merch", "cosplay", "live_action", "realistic",
+            "3d", "cgi", "render", "logo", "watermark", "text", "screenshot", "comic",
+            "manga_page", "panel", "model_kit",
+        )
+        if any(x in t for x in bad):
+            return False
+        if any(x in u for x in ("figure", "figurine", "toy", "merch", "logo")):
+            return False
+        good = ("1girl", "1boy", "anime", "original", "illustration", "solo")
+        return any(x in t for x in good)
 
     def _topic_from_tags(self, tags: str) -> str:
         t = tags.lower()
