@@ -15,6 +15,6 @@ def generate_hashtags(topic: str) -> str:
     pool = THEME_TAGS.get(topic, THEME_TAGS["anime art"])
     k = random.randint(4, min(7, len(pool)))
     tags = random.sample(pool, k=k)
-    if "#anime" not in tags:
-        tags[0] = "#anime"
+    if "#аниме" not in tags:
+        tags[0] = "#аниме"
     return " ".join(tags)

@@ -28,11 +28,15 @@ class ImageFetcher:
                 if score < 20:
                     logger.info("image rejected source=%s reason=low_score score=%s url=%s tags=%s", source, score, url, tags[:120])
                     continue
+                if score < 20:
+                    continue
                 if not self._is_quality_ok(url, w, h):
                     logger.info("image rejected source=%s reason=quality size=%sx%s url=%s", source, w, h, url)
                     continue
                 if not self._is_anime_art(tags, url):
                     logger.info("image rejected source=%s reason=style_filter url=%s tags=%s", source, url, tags[:120])
+                    continue
+                if not self._is_anime_art(tags, url):
                     continue
                 out = await self._download(session, url)
                 if not out:
