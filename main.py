@@ -53,6 +53,12 @@ async def main():
         vk_poster=VKPoster(settings.vk_token, settings.vk_group_id),
         hashtag_fn=generate_hashtags,
     )
+    access_ok, access_msg = scheduler.vk_poster.check_access()
+    if not access_ok:
+        logging.error("VK startup access check failed: %s", access_msg)
+        if "could not access to this community" in access_msg.lower() or "access denied" in access_msg.lower():
+            scheduler.comments_enabled = False
+            logging.error("Comment reply scheduler disabled due to VK permissions")
     if settings.test_post_now:
         try:
             await scheduler.publish_test_post_now()

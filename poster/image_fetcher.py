@@ -17,20 +17,34 @@ class ImageFetcher:
         async with aiohttp.ClientSession(headers=HEADERS, timeout=aiohttp.ClientTimeout(total=20)) as session:
             candidates = await self._collect_candidates(session)
             random.shuffle(candidates)
+            attempts = 0
             for url, w, h, tags, source, score in candidates:
+                attempts += 1
+                if attempts > 20:
+                    break
                 if not url or (blocked_urls and url in blocked_urls):
+                    logger.info("image rejected source=%s reason=empty_or_blocked url=%s", source, url)
+                    continue
+                if score < 20:
+                    logger.info("image rejected source=%s reason=low_score score=%s url=%s tags=%s", source, score, url, tags[:120])
                     continue
                 if score < 20:
                     continue
                 if not self._is_quality_ok(url, w, h):
+                    logger.info("image rejected source=%s reason=quality size=%sx%s url=%s", source, w, h, url)
+                    continue
+                if not self._is_anime_art(tags, url):
+                    logger.info("image rejected source=%s reason=style_filter url=%s tags=%s", source, url, tags[:120])
                     continue
                 if not self._is_anime_art(tags, url):
                     continue
                 out = await self._download(session, url)
                 if not out:
+                    logger.info("image rejected source=%s reason=download_failed url=%s", source, url)
                     continue
                 topic = self._topic_from_tags(tags)
                 checksum = hashlib.sha256(out.read_bytes()).hexdigest()
+                logger.info("image accepted source=%s size=%sx%s url=%s", source, w, h, url)
                 return url, out, topic, checksum, tags, source, (w, h)
         return None
 
@@ -38,6 +52,7 @@ class ImageFetcher:
         c=[]
         c.extend(await self._fetch_safebooru(s))
         c.extend(await self._fetch_danbooru(s))
+        c.extend(await self._fetch_yandere(s))
         c.extend(await self._fetch_konachan(s))
         c.extend(await self._fetch_wallhaven(s))
         return c
@@ -111,6 +126,17 @@ class ImageFetcher:
                 d=json.loads(await r.text())
             return [(x.get("file_url",""),int(x.get("width",0)),int(x.get("height",0)),(x.get("tags") or ""),"konachan", int(x.get("score", 0) or 0)) for x in d if x.get("file_url")]
         except Exception:return []
+
+    async def _fetch_yandere(self, s):
+        u="https://yande.re/post.json?limit=80&tags=safe+anime+score:>20"
+        try:
+            async with s.get(u) as r:
+                if r.status != 200:
+                    return []
+                d = json.loads(await r.text())
+            return [(x.get("file_url", ""), int(x.get("width", 0)), int(x.get("height", 0)), (x.get("tags") or ""), "yandere", int(x.get("score", 0) or 0)) for x in d if x.get("file_url")]
+        except Exception:
+            return []
 
     async def _fetch_wallhaven(self, s):
         u="https://wallhaven.cc/api/v1/search?q=anime&categories=010&purity=100&sorting=toplist"

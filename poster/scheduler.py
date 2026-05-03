@@ -25,13 +25,15 @@ class BotScheduler:
         self.scheduler = AsyncIOScheduler(timezone=settings.timezone)
         self.comment_responder = CommentResponder()
         self.replied_comments: set[int] = set()
+        self.comments_enabled = True
 
     def start(self):
         self.scheduler.add_job(self._publish_art_post, CronTrigger(hour=10, minute=0))
         self.scheduler.add_job(self._publish_art_post, CronTrigger(hour=17, minute=0))
         self.scheduler.add_job(self._publish_art_post, CronTrigger(hour=0, minute=0))
         self.scheduler.add_job(self._publish_news_post, "interval", minutes=90)
-        self.scheduler.add_job(self._process_new_comments, "interval", minutes=1, next_run_time=datetime.now(self.scheduler.timezone))
+        if self.comments_enabled:
+            self.scheduler.add_job(self._process_new_comments, "interval", minutes=1, next_run_time=datetime.now(self.scheduler.timezone))
         self.scheduler.start()
 
     async def _publish_art(self):
@@ -137,6 +139,7 @@ class BotScheduler:
                     new_comment_id = self.vk_poster.reply_to_comment(post_id, comment_id, reply)
                     if new_comment_id <= 0:
                         logger.warning("Reply failed for comment_id=%s post_id=%s", comment_id, post_id)
+                        self.replied_comments.add(comment_id)
                         continue
                     self.db.add_comment_reply(comment_id, user_id)
                     self.replied_comments.add(comment_id)

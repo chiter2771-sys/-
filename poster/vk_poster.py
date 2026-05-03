@@ -19,6 +19,18 @@ class VKPoster:
         self.session = requests.Session()
         self.allowed_mime_types = {"image/jpeg", "image/png", "image/webp"}
 
+    def check_access(self) -> tuple[bool, str]:
+        try:
+            wall = self._call("wall.get", owner_id=-abs(self.group_id), count=1)
+            items = wall.get("items", []) if isinstance(wall, dict) else []
+            if items:
+                self._call("wall.getComments", owner_id=-abs(self.group_id), post_id=int(items[0].get("id", 0) or 0), count=1)
+            return True, "ok"
+        except RuntimeError as exc:
+            msg = str(exc)
+            logger.error("VK access check failed: %s", msg)
+            return False, msg
+
     def _prepare_image_for_upload(self, file_path: str, max_size: int, quality: int) -> tuple[Path, dict[str, Any]] | None:
         src = Path(file_path)
         if not src.exists():

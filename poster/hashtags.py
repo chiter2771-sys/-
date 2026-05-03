@@ -1,14 +1,14 @@
 import random
 
 THEME_TAGS = {
-    "samurai": ["#аниме", "#самурай", "#катана", "#япония", "#ночь"],
-    "school": ["#аниме", "#школа", "#повседневность", "#уют", "#вечер"],
-    "cyberpunk": ["#аниме", "#неон", "#город", "#киберпанк", "#атмосфера"],
-    "fantasy": ["#аниме", "#фэнтези", "#магия", "#миф", "#сказка"],
-    "action": ["#аниме", "#битва", "#движение", "#драйв", "#сцена"],
-    "melancholy": ["#аниме", "#дождь", "#ночь", "#город", "#настроение"],
-    "cozy": ["#аниме", "#уют", "#тепло", "#дом", "#тишина"],
-    "anime art": ["#аниме", "#арт", "#иллюстрация", "#эстетика", "#кадр"],
+    "samurai": ["#anime", "#samurai", "#katana", "#night", "#japan", "#moonlight"],
+    "school": ["#anime", "#school", "#evening", "#sliceoflife", "#classroom", "#quiet"],
+    "cyberpunk": ["#anime", "#cyberpunk", "#neon", "#nightcity", "#streetlights", "#rain"],
+    "fantasy": ["#anime", "#fantasy", "#magic", "#myth", "#dream", "#moon"],
+    "action": ["#anime", "#action", "#battle", "#dynamic", "#sword", "#scene"],
+    "melancholy": ["#anime", "#rain", "#night", "#city", "#atmosphere", "#lights"],
+    "cozy": ["#anime", "#cozy", "#warmlight", "#home", "#quiet", "#evening"],
+    "anime art": ["#anime", "#artwork", "#illustration", "#aesthetic", "#scene", "#mood"],
 }
 
 def generate_hashtags(topic: str) -> str:
