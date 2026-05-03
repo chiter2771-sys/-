@@ -53,6 +53,8 @@ class TextGenerator:
                     low = text.lower()
                     if "теплый свет свечи" in low:
                         raise ValueError("cliche phrase")
+                    if any("a" <= ch.lower() <= "z" for ch in text):
+                        raise ValueError("non-russian text")
                     return text
                 except (RateLimitError, TimeoutError, APIError, ValueError):
                     await asyncio.sleep(0.7 * (attempt + 1))

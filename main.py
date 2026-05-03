@@ -35,7 +35,7 @@ async def main():
     try:
         probe = await ImageFetcher(settings.storage_path, settings.min_image_width, settings.min_image_height).fetch_random()
         if probe:
-            image_url, local_path, _, _, _ = probe
+            image_url, local_path, _, _, _, _, _ = probe
             logging.info("Startup image fetch URL: %s", image_url)
             logging.info("Startup image download path: %s", local_path)
             logging.info("Image fetched successfully")
