@@ -49,6 +49,8 @@ class Database:
                     id INTEGER PRIMARY KEY,
                     comment_id INTEGER UNIQUE NOT NULL,
                     user_id INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'ok',
+                    attempts INTEGER NOT NULL DEFAULT 1,
                     replied_at TEXT NOT NULL
                 );
                 """
@@ -107,6 +109,20 @@ class Database:
     def add_comment_reply(self, comment_id: int, user_id: int):
         with self.conn() as c:
             c.execute(
-                "INSERT OR IGNORE INTO comment_replies(comment_id,user_id,replied_at) VALUES(?,?,?)",
-                (comment_id, user_id, datetime.now(timezone.utc).isoformat()),
+                "INSERT OR IGNORE INTO comment_replies(comment_id,user_id,status,attempts,replied_at) VALUES(?,?,?,?,?)",
+                (comment_id, user_id, "ok", 1, datetime.now(timezone.utc).isoformat()),
+            )
+
+
+    def comment_reply_attempts(self, comment_id: int) -> int:
+        with self.conn() as c:
+            row = c.execute("SELECT attempts FROM comment_replies WHERE comment_id=?", (comment_id,)).fetchone()
+            return int(row[0]) if row else 0
+
+    def mark_comment_reply_failed(self, comment_id: int, user_id: int):
+        with self.conn() as c:
+            c.execute(
+                "INSERT INTO comment_replies(comment_id,user_id,status,attempts,replied_at) VALUES(?,?,?,?,?) "
+                "ON CONFLICT(comment_id) DO UPDATE SET attempts=attempts+1,status='failed',replied_at=excluded.replied_at",
+                (comment_id, user_id, 'failed', 1, datetime.now(timezone.utc).isoformat()),
             )
