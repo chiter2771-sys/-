@@ -1,8 +1,10 @@
 import logging
+import mimetypes
 from pathlib import Path
 from typing import Any
 
 import requests
+from PIL import Image
 
 
 logger = logging.getLogger(__name__)
@@ -15,6 +17,73 @@ class VKPoster:
         self.api = "https://api.vk.com/method"
         self.v = "5.199"
         self.session = requests.Session()
+        self.allowed_mime_types = {"image/jpeg", "image/png", "image/webp"}
+
+    def check_access(self) -> tuple[bool, str]:
+        try:
+            wall = self._call("wall.get", owner_id=-abs(self.group_id), count=1)
+            items = wall.get("items", []) if isinstance(wall, dict) else []
+            if items:
+                self._call("wall.getComments", owner_id=-abs(self.group_id), post_id=int(items[0].get("id", 0) or 0), count=1)
+            return True, "ok"
+        except RuntimeError as exc:
+            msg = str(exc)
+            logger.error("VK access check failed: %s", msg)
+            return False, msg
+
+    def _prepare_image_for_upload(self, file_path: str, max_size: int, quality: int) -> tuple[Path, dict[str, Any]] | None:
+        src = Path(file_path)
+        if not src.exists():
+            logger.error("Skip upload: image file not found: %s", file_path)
+            return None
+        size_bytes = src.stat().st_size
+        if size_bytes <= 0:
+            logger.error("Skip upload: image file is empty: %s", file_path)
+            return None
+        mime_type, _ = mimetypes.guess_type(src.name)
+        if mime_type not in self.allowed_mime_types:
+            logger.error("Skip upload: unsupported MIME type %s for %s", mime_type, file_path)
+            return None
+        try:
+            with Image.open(src) as img:
+                original_size = img.size
+                image_format = img.format
+                img = img.convert("RGB")
+                img.thumbnail((max_size, max_size))
+                out_path = src.with_name(f"{src.stem}_vk_{max_size}_{quality}.jpg")
+                img.save(out_path, "JPEG", quality=quality, optimize=True)
+                final_size = img.size
+        except Exception:
+            logger.exception("Skip upload: failed to normalize image: %s", file_path)
+            return None
+
+        meta = {
+            "source_path": str(src),
+            "prepared_path": str(out_path),
+            "source_size_bytes": size_bytes,
+            "prepared_size_bytes": out_path.stat().st_size if out_path.exists() else 0,
+            "mime_type": mime_type,
+            "source_extension": src.suffix.lower(),
+            "source_dimensions": original_size,
+            "prepared_dimensions": final_size,
+            "source_format": image_format,
+        }
+        return out_path, meta
+
+    def _upload_to_server(self, upload_url: str, path: Path, meta: dict[str, Any]) -> tuple[dict[str, Any] | None, int | None]:
+        try:
+            with open(path, "rb") as f:
+                upload_response = self.session.post(upload_url, files={"photo": f}, timeout=60)
+            status_code = upload_response.status_code
+            upload_response.raise_for_status()
+            logger.info("VK raw upload response: %s", upload_response.text[:1000])
+            return upload_response.json(), status_code
+        except ValueError:
+            logger.error("VK upload returned invalid JSON. status=%s url=%s meta=%s body=%s", status_code if 'status_code' in locals() else None, upload_url, meta, upload_response.text[:500] if 'upload_response' in locals() else "")
+            return None, status_code if 'status_code' in locals() else None
+        except requests.RequestException:
+            logger.exception("VK upload transport error. url=%s meta=%s", upload_url, meta)
+            return None, None
 
     def _call(self, method: str, **params: Any) -> dict[str, Any]:
         payload = {"access_token": self.token, "v": self.v, **params}
@@ -44,51 +113,55 @@ class VKPoster:
             raise RuntimeError(f"VK malformed response on {method}: missing response")
         return data["response"]
 
-    def upload_photo(self, file_path: str) -> str:
-        if not Path(file_path).exists():
-            raise RuntimeError(f"Image file not found: {file_path}")
-
+    def upload_photo(self, file_path: str) -> str | None:
         server = self._call("photos.getWallUploadServer", group_id=self.group_id)
         upload_url = server.get("upload_url")
         if not upload_url:
-            raise RuntimeError("VK did not return upload_url")
+            logger.error("VK did not return upload_url")
+            return None
 
-        upload = None
-        for attempt in range(3):
-            try:
-                with open(file_path, "rb") as f:
-                    upload_response = self.session.post(upload_url, files={"photo": f}, timeout=60)
-                    upload_response.raise_for_status()
-                    logger.info("VK raw upload response: %s", upload_response.text[:1000])
-                    upload = upload_response.json()
-                break
-            except requests.RequestException as exc:
-                if attempt == 2:
-                    logger.exception("VK upload transport error")
-                    raise RuntimeError(f"VK upload transport error: {exc}") from exc
-            except ValueError as exc:
-                logger.error("VK upload returned non-JSON response: %s", upload_response.text[:500] if 'upload_response' in locals() else '')
-                raise RuntimeError("VK upload returned invalid JSON") from exc
+        primary = self._prepare_image_for_upload(file_path, max_size=2560, quality=95)
+        if not primary:
+            return None
+        primary_path, primary_meta = primary
+        upload, status_code = self._upload_to_server(upload_url, primary_path, primary_meta)
+        if not upload:
+            return None
 
         if upload.get("error"):
             logger.error("VK upload API-level error: %s", upload)
-            raise RuntimeError(f"VK upload failed: {upload}")
+            return None
         if not all(k in upload for k in ("photo", "server", "hash")) or not upload.get("photo"):
-            logger.error("VK upload missing expected fields: %s", upload)
-            raise RuntimeError(f"VK upload malformed response: {upload}")
+            logger.error("VK upload malformed response. payload=%s file_size=%s mime=%s ext=%s dims=%s upload_url=%s status=%s", upload, primary_meta["prepared_size_bytes"], primary_meta["mime_type"], primary_meta["source_extension"], primary_meta["prepared_dimensions"], upload_url, status_code)
+            fallback = self._prepare_image_for_upload(file_path, max_size=1280, quality=85)
+            if not fallback:
+                return None
+            fallback_path, fallback_meta = fallback
+            upload, status_code = self._upload_to_server(upload_url, fallback_path, fallback_meta)
+            if not upload:
+                return None
+            if not all(k in upload for k in ("photo", "server", "hash")) or not upload.get("photo"):
+                logger.error("VK fallback upload malformed response. payload=%s file_size=%s mime=%s ext=%s dims=%s upload_url=%s status=%s", upload, fallback_meta["prepared_size_bytes"], fallback_meta["mime_type"], fallback_meta["source_extension"], fallback_meta["prepared_dimensions"], upload_url, status_code)
+                return None
 
-        saved = self._call(
-            "photos.saveWallPhoto",
-            group_id=self.group_id,
-            photo=upload["photo"],
-            server=upload["server"],
-            hash=upload["hash"],
-        )
+        try:
+            saved = self._call(
+                "photos.saveWallPhoto",
+                group_id=self.group_id,
+                photo=upload["photo"],
+                server=upload["server"],
+                hash=upload["hash"],
+            )
+        except RuntimeError:
+            logger.exception("VK saveWallPhoto failed")
+            return None
         if not saved:
-            raise RuntimeError("VK saveWallPhoto returned empty response")
+            logger.error("VK saveWallPhoto returned empty response")
+            return None
         photo = saved[0]
         if "owner_id" not in photo or "id" not in photo:
-            raise RuntimeError(f"VK saveWallPhoto malformed response: {photo}")
+            logger.error("VK saveWallPhoto malformed response: %s", photo)
+            return None
         logger.info("VK photo uploaded: owner_id=%s id=%s", photo["owner_id"], photo["id"])
         return f"photo{photo['owner_id']}_{photo['id']}"
 
@@ -126,12 +199,16 @@ class VKPoster:
         return res.get("items", []) if isinstance(res, dict) else []
 
     def reply_to_comment(self, post_id: int, comment_id: int, message: str) -> int:
-        res = self._call(
-            "wall.createComment",
-            owner_id=-abs(self.group_id),
-            post_id=post_id,
-            reply_to_comment=comment_id,
-            from_group=1,
-            message=message,
-        )
+        try:
+            res = self._call(
+                "wall.createComment",
+                owner_id=-abs(self.group_id),
+                post_id=post_id,
+                reply_to_comment=comment_id,
+                from_group=1,
+                message=message,
+            )
+        except RuntimeError:
+            logger.exception("VK comment reply failed post_id=%s comment_id=%s", post_id, comment_id)
+            return 0
         return int(res.get("comment_id", 0))
