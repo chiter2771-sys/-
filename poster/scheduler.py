@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import random
+from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -30,37 +31,44 @@ class BotScheduler:
         self.scheduler.add_job(self._publish_art_post, CronTrigger(hour=17, minute=0))
         self.scheduler.add_job(self._publish_art_post, CronTrigger(hour=0, minute=0))
         self.scheduler.add_job(self._publish_news_post, "interval", minutes=90)
-        self.scheduler.add_job(self._process_new_comments, "interval", minutes=5)
+        self.scheduler.add_job(self._process_new_comments, "interval", minutes=1, next_run_time=datetime.now(self.scheduler.timezone))
         self.scheduler.start()
 
     async def _publish_art(self):
-        item = await self.image_fetcher.fetch_random(blocked_urls=self.db.image_urls())
-        if not item:
-            logger.warning("Skip art post: no valid image fetched")
-            return None
-        src, local, topic, checksum = item
-        logger.info("image url: %s", src)
-        if self.db.has_image_checksum(checksum):
-            logger.info("Duplicate image checksum, skip")
-            return None
-        caption = await self.text_gen.caption(topic)
-        logger.info("generated caption: %s", caption)
-        if self.db.has_text(caption):
-            caption = f"{caption}\n{random.randint(10, 999)}"
-        tags = self.hashtag_fn(topic)
-        text = caption.strip()
-        if tags:
-            text = f"{text}\n\n{tags}" if text else tags
-        try:
-            attachment = self.vk_poster.upload_photo(str(local))
-            post_id = self.vk_poster.post(text, attachment)
-        except Exception:
-            logger.exception("VK publish failed, skip this art post")
-            return None
-        self.db.add_image(src, str(local), topic, checksum)
-        self.db.add_post("art", checksum, caption, post_id)
-        logger.info("Published art post %s", post_id)
-        return post_id
+        for attempt in range(1, 6):
+            item = await self.image_fetcher.fetch_random(blocked_urls=self.db.image_urls())
+            if not item:
+                logger.warning("Skip art post: no valid image fetched (attempt %s/5)", attempt)
+                continue
+            src, local, topic, checksum, tags, source, size = item
+            logger.info("image selected url=%s source=%s size=%s attempt=%s/5", src, source, size, attempt)
+            if self.db.has_image_checksum(checksum):
+                logger.info("Duplicate image checksum, skip attempt %s/5", attempt)
+                continue
+            caption = await self.text_gen.caption(topic, tags)
+            logger.info("generated caption: %s", caption)
+            if self.db.has_text(caption):
+                caption = f"{caption}\n{random.randint(10, 999)}"
+            tags_out = self.hashtag_fn(topic)
+            logger.info("generated tags: %s", tags_out)
+            text = caption.strip()
+            if tags_out:
+                text = f"{text}\n\n{tags_out}" if text else tags_out
+            try:
+                attachment = self.vk_poster.upload_photo(str(local))
+                if not attachment:
+                    logger.warning("Upload failed or empty photo, retry with new image (attempt %s/5)", attempt)
+                    continue
+                post_id = self.vk_poster.post(text, attachment)
+            except Exception:
+                logger.exception("VK publish failed on attempt %s/5", attempt)
+                continue
+            self.db.add_image(src, str(local), topic, checksum)
+            self.db.add_post("art", checksum, caption, post_id)
+            logger.info("Published art post %s", post_id)
+            return post_id
+        logger.error("Skip art post after 5 failed attempts")
+        return None
 
     async def _publish_art_post(self):
         await self._publish_art()
@@ -80,7 +88,17 @@ class BotScheduler:
         text = await self.news_summarizer.summarize(entry["title"], entry["summary"], entry["link"])
         if self.db.has_text(text):
             return
-        post_id = self.vk_poster.post(text)
+        art_item = await self.image_fetcher.fetch_random(blocked_urls=self.db.image_urls())
+        if not art_item:
+            logger.warning("Skip news post: no image for news")
+            return
+        src, local, topic, checksum, _, _, _ = art_item
+        attachment = self.vk_poster.upload_photo(str(local))
+        if not attachment:
+            logger.warning("Skip news post: image upload failed")
+            return
+        post_id = self.vk_poster.post(text, attachment)
+        self.db.add_image(src, str(local), topic, checksum)
         self._last_post_id = post_id
         self.db.add_news(entry["guid"], entry["title"], entry["link"], entry.get("published"))
         self.db.add_post("news", None, text, post_id)
@@ -116,7 +134,10 @@ class BotScheduler:
                         logger.info("No reply generated id=%s", comment_id)
                         continue
                     logger.info("Reply generated id=%s: %s", comment_id, reply)
-                    self.vk_poster.reply_to_comment(post_id, comment_id, reply)
+                    new_comment_id = self.vk_poster.reply_to_comment(post_id, comment_id, reply)
+                    if new_comment_id <= 0:
+                        logger.warning("Reply failed for comment_id=%s post_id=%s", comment_id, post_id)
+                        continue
                     self.db.add_comment_reply(comment_id, user_id)
                     self.replied_comments.add(comment_id)
                     self.comment_responder.mark_replied()
