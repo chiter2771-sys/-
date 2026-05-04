@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import logging
@@ -21,28 +22,32 @@ class ImageFetcher:
 
     async def fetch_random(self, blocked_urls: set[str] | None = None):
         async with aiohttp.ClientSession(headers=HEADERS, timeout=aiohttp.ClientTimeout(total=25)) as session:
-            candidates = await self._collect_candidates(session)
-            random.shuffle(candidates)
-            for url, w, h, tags, source, provider_score in candidates[:200]:
-                if not url or (blocked_urls and url in blocked_urls):
-                    continue
-                if has_blocked_tags(tags):
-                    continue
-                score = quality_score(tags, w, h, provider_score)
-                if score < 40:
-                    continue
-                out = await self._download(session, url)
-                if not out:
-                    continue
-                valid, reason, size = validate_image_file(out, self.min_w, self.min_h)
-                if not valid:
-                    logger.warning("invalid image source=%s reason=%s url=%s", source, reason, url)
-                    out.unlink(missing_ok=True)
-                    continue
-                topic = self._topic_from_tags(tags)
-                checksum = hashlib.sha256(out.read_bytes()).hexdigest()
-                logger.info("image validated source=%s score=%s size=%s url=%s", source, score, size, url)
-                return url, out, topic, checksum, tags, source, size
+            for attempt in range(1, 11):
+                candidates = await self._collect_candidates(session)
+                random.shuffle(candidates)
+                for url, w, h, tags, source, provider_score in candidates[:220]:
+                    if not url or (blocked_urls and url in blocked_urls):
+                        continue
+                    if has_blocked_tags(tags):
+                        continue
+                    score = quality_score(tags, w, h, provider_score)
+                    if score < 55:
+                        continue
+                    out = await self._download(session, url)
+                    if not out:
+                        continue
+                    valid, reason, size = validate_image_file(out, self.min_w, self.min_h)
+                    if not valid:
+                        logger.warning("invalid image source=%s reason=%s url=%s", source, reason, url)
+                        out.unlink(missing_ok=True)
+                        continue
+                    topic = self._topic_from_tags(tags)
+                    checksum = hashlib.sha256(out.read_bytes()).hexdigest()
+                    logger.info("image selected source=%s score=%s size=%s url=%s", source, score, size, url)
+                    return url, out, topic, checksum, tags, source, size
+                delay = min(20, 0.6 * (2 ** (attempt - 1)))
+                logger.warning("retry provider attempt=%s/10 delay=%.2fs", attempt, delay)
+                await asyncio.sleep(delay)
         return None
 
     async def _collect_candidates(self, s):
