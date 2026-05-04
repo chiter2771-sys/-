@@ -63,22 +63,8 @@ class VKPoster:
         return f"photo{photo['owner_id']}_{photo['id']}"
 
     def post(self, message: str, attachment: str | None = None) -> int:
+        if not attachment:
+            logger.error("empty attachment, post aborted")
+            return 0
         res = self._call("wall.post", owner_id=-abs(self.group_id), from_group=1, message=message, attachments=attachment)
         return int(res.get("post_id", 0))
-
-    def get_recent_posts(self, count: int = 5) -> list[dict[str, Any]]:
-        return self._call("wall.get", owner_id=-abs(self.group_id), count=count).get("items", [])
-
-    def get_post_comments(self, post_id: int, count: int = 20) -> list[dict[str, Any]]:
-        return self._call("wall.getComments", owner_id=-abs(self.group_id), post_id=post_id, count=count).get("items", [])
-
-    def reply_to_comment(self, post_id: int, comment_id: int, message: str) -> int:
-        try:
-            res = self._call("wall.createComment", owner_id=-abs(self.group_id), post_id=post_id, reply_to_comment=comment_id, from_group=1, message=message)
-            return int(res.get("comment_id", 0))
-        except RuntimeError:
-            try:
-                res = self._call("wall.createComment", owner_id=-abs(self.group_id), post_id=post_id, reply_to_comment=comment_id, message=message)
-                return int(res.get("comment_id", 0))
-            except RuntimeError:
-                return 0

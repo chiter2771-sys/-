@@ -1,15 +1,10 @@
 import asyncio
 import logging
 import random
-from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from poster.comment_responder import CommentResponder
 from poster.retry_utils import retry_async
-
-from news.news_filter import pick_news
-from news.rss_parser import fetch_entries
 
 logger = logging.getLogger(__name__)
 
@@ -24,16 +19,11 @@ class BotScheduler:
         self.vk_poster = vk_poster
         self.hashtag_fn = hashtag_fn
         self.scheduler = AsyncIOScheduler(timezone=settings.timezone)
-        self.comment_responder = CommentResponder()
-        self.replied_comments: set[int] = set()
-        self.comments_enabled = True
 
     def start(self):
         self.scheduler.add_job(self._publish_art_post, CronTrigger(hour=10, minute=0))
         self.scheduler.add_job(self._publish_art_post, CronTrigger(hour=17, minute=0))
         self.scheduler.add_job(self._publish_art_post, CronTrigger(hour=0, minute=0))
-        if self.comments_enabled:
-            self.scheduler.add_job(self._process_new_comments, "interval", minutes=1, next_run_time=datetime.now(self.scheduler.timezone))
         self.scheduler.start()
 
     async def _publish_art(self):
@@ -54,7 +44,7 @@ class BotScheduler:
             try:
                 attachment = self.vk_poster.upload_photo(str(local))
                 if not attachment:
-                    logger.warning("upload retry attempt=%s/10", attempt)
+                    logger.error("vk upload failed attempt=%s/10", attempt)
                     continue
                 post_id = self.vk_poster.post(text, attachment)
             except Exception:
@@ -74,31 +64,6 @@ class BotScheduler:
 
     async def publish_test_post_now(self):
         await self._publish_art()
-
-    async def _process_new_comments(self):
-        posts = self.vk_poster.get_recent_posts(count=5)
-        for post in posts:
-            post_id = int(post.get("id", 0) or 0)
-            for item in self.vk_poster.get_post_comments(post_id=post_id, count=20):
-                comment_id = int(item.get("id", 0) or 0)
-                user_id = int(item.get("from_id", 0) or 0)
-                text = (item.get("text") or "").strip()
-                if comment_id <= 0 or user_id == 0 or user_id == -abs(self.settings.vk_group_id):
-                    continue
-                if self.db.has_replied_comment(comment_id) and self.db.comment_reply_attempts(comment_id) >= 2:
-                    continue
-                if not self.comment_responder.should_reply(text):
-                    continue
-                reply = self.comment_responder.build_reply(text)
-                if not reply:
-                    continue
-                new_comment_id = self.vk_poster.reply_to_comment(post_id, comment_id, reply)
-                if new_comment_id <= 0:
-                    self.db.mark_comment_reply_failed(comment_id, user_id)
-                    continue
-                self.db.add_comment_reply(comment_id, user_id)
-                self.comment_responder.mark_replied()
-                return
 
     async def run_forever(self):
         while True:
