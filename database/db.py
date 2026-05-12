@@ -45,14 +45,6 @@ class Database:
                     link TEXT NOT NULL,
                     published_at TEXT
                 );
-                CREATE TABLE IF NOT EXISTS comment_replies(
-                    id INTEGER PRIMARY KEY,
-                    comment_id INTEGER UNIQUE NOT NULL,
-                    user_id INTEGER NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'ok',
-                    attempts INTEGER NOT NULL DEFAULT 1,
-                    replied_at TEXT NOT NULL
-                );
                 """
             )
 
@@ -102,27 +94,6 @@ class Database:
             row = c.execute("SELECT count(1) as cnt FROM posts WHERE post_type='news' AND substr(created_at,1,10)=?", (date,)).fetchone()
             return int(row["cnt"]) if row else 0
 
-    def has_replied_comment(self, comment_id: int) -> bool:
-        with self.conn() as c:
-            return c.execute("SELECT 1 FROM comment_replies WHERE comment_id=?", (comment_id,)).fetchone() is not None
-
-    def add_comment_reply(self, comment_id: int, user_id: int):
-        with self.conn() as c:
-            c.execute(
-                "INSERT OR IGNORE INTO comment_replies(comment_id,user_id,status,attempts,replied_at) VALUES(?,?,?,?,?)",
-                (comment_id, user_id, "ok", 1, datetime.now(timezone.utc).isoformat()),
-            )
 
 
-    def comment_reply_attempts(self, comment_id: int) -> int:
-        with self.conn() as c:
-            row = c.execute("SELECT attempts FROM comment_replies WHERE comment_id=?", (comment_id,)).fetchone()
-            return int(row[0]) if row else 0
 
-    def mark_comment_reply_failed(self, comment_id: int, user_id: int):
-        with self.conn() as c:
-            c.execute(
-                "INSERT INTO comment_replies(comment_id,user_id,status,attempts,replied_at) VALUES(?,?,?,?,?) "
-                "ON CONFLICT(comment_id) DO UPDATE SET attempts=attempts+1,status='failed',replied_at=excluded.replied_at",
-                (comment_id, user_id, 'failed', 1, datetime.now(timezone.utc).isoformat()),
-            )

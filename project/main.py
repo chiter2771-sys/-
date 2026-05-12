@@ -33,9 +33,9 @@ async def main():
 
     # Startup connectivity check for image sources (does not stop scheduler)
     try:
-        probe = await ImageFetcher(settings.storage_path, settings.min_image_width, settings.min_image_height).fetch_random()
+        probe = await ImageFetcher(settings.storage_path, settings.min_image_width, settings.min_image_height, settings.pixiv_refresh_token).fetch_random()
         if probe:
-            image_url, local_path, _, _ = probe
+            image_url, local_path, _, _, _, _, _ = probe
             logging.info("Startup image fetch URL: %s", image_url)
             logging.info("Startup image download path: %s", local_path)
             logging.info("Image fetched successfully")
@@ -47,7 +47,7 @@ async def main():
     scheduler = BotScheduler(
         settings=settings,
         db=db,
-        image_fetcher=ImageFetcher(settings.storage_path, settings.min_image_width, settings.min_image_height),
+        image_fetcher=ImageFetcher(settings.storage_path, settings.min_image_width, settings.min_image_height, settings.pixiv_refresh_token),
         text_gen=TextGenerator(settings.openrouter_api_key, settings.openrouter_model, settings.openrouter_fallback_model),
         news_summarizer=NewsSummarizer(settings.openrouter_api_key, settings.openrouter_model, settings.openrouter_fallback_model),
         vk_poster=VKPoster(settings.vk_token, settings.vk_group_id),
