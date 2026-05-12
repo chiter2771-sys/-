@@ -8,6 +8,7 @@ class Settings:
     vk_token: str
     vk_group_id: int
     openrouter_api_key: str
+    pixiv_refresh_token: str
     openrouter_model: str
     openrouter_fallback_model: str
     db_path: str
@@ -38,6 +39,7 @@ def load_settings() -> Settings:
         vk_token=_require("VK_TOKEN"),
         vk_group_id=int(_require("VK_GROUP_ID")),
         openrouter_api_key=_require("OPENROUTER_API_KEY"),
+        pixiv_refresh_token=_require("PIXIV_REFRESH_TOKEN"),
         openrouter_model=os.getenv("OPENROUTER_MODEL", "openai/gpt-4.1-mini"),
         openrouter_fallback_model=os.getenv("OPENROUTER_FALLBACK_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
         db_path=os.getenv("DB_PATH", "database/bot.db"),
@@ -48,8 +50,8 @@ def load_settings() -> Settings:
         posts_min_per_day=int(os.getenv("POSTS_MIN_PER_DAY", "2")),
         posts_max_per_day=int(os.getenv("POSTS_MAX_PER_DAY", "5")),
         news_max_per_day=int(os.getenv("NEWS_MAX_PER_DAY", "2")),
-        min_image_width=int(os.getenv("MIN_IMAGE_WIDTH", "1000")),
-        min_image_height=int(os.getenv("MIN_IMAGE_HEIGHT", "1000")),
+        min_image_width=int(os.getenv("MIN_IMAGE_WIDTH", "1200")),
+        min_image_height=int(os.getenv("MIN_IMAGE_HEIGHT", "1200")),
         cleanup_keep_files=int(os.getenv("CLEANUP_KEEP_FILES", "150")),
         test_post_now=os.getenv("TEST_POST_NOW", "false").lower() == "true",
     )

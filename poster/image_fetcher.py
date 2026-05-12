@@ -1,115 +1,121 @@
 import asyncio
 import hashlib
-import json
 import logging
 import random
 from pathlib import Path
 
 import aiohttp
+from pixivpy3 import AppPixivAPI
 
-from poster.content_filters import has_blocked_tags, quality_score
 from poster.image_validator import validate_image_file
 
 logger = logging.getLogger(__name__)
-HEADERS = {"User-Agent": "VKAnimeBot/1.0", "Accept": "application/json,text/plain,*/*"}
+
+PIXIV_QUERIES = [
+    "anime girl night city",
+    "anime aesthetic",
+    "cyberpunk anime girl",
+    "anime kimono",
+    "sakura anime art",
+    "cozy anime room",
+    "rainy anime night",
+    "japanese aesthetic anime",
+    "fantasy anime girl",
+    "anime sunset scenery",
+]
+
+BLOCKED_TERMS = {
+    "school_uniform", "school uniform", "classroom", "loli", "child", "shota",
+    "comic", "manga", "lowres", "blurry", "pixelated",
+}
 
 
 class ImageFetcher:
-    def __init__(self, storage_dir: Path, min_w: int, min_h: int):
+    def __init__(self, storage_dir: Path, min_w: int, min_h: int, pixiv_refresh_token: str):
         self.storage_dir = storage_dir
-        self.min_w = min_w
-        self.min_h = min_h
+        self.min_w = max(min_w, 1200)
+        self.min_h = max(min_h, 1200)
+        self.pixiv_refresh_token = pixiv_refresh_token
+        self.api = AppPixivAPI()
+        self._query_index = 0
 
     async def fetch_random(self, blocked_urls: set[str] | None = None):
-        async with aiohttp.ClientSession(headers=HEADERS, timeout=aiohttp.ClientTimeout(total=25)) as session:
-            for attempt in range(1, 11):
-                candidates = await self._collect_candidates(session)
-                random.shuffle(candidates)
-                for url, w, h, tags, source, provider_score in candidates[:220]:
-                    if not url or (blocked_urls and url in blocked_urls):
-                        continue
-                    if has_blocked_tags(tags):
-                        continue
-                    score = quality_score(tags, w, h, provider_score)
-                    if score < 55:
-                        continue
-                    out = await self._download(session, url)
-                    if not out:
-                        continue
-                    valid, reason, size = validate_image_file(out, self.min_w, self.min_h)
-                    if not valid:
-                        logger.warning("invalid image source=%s reason=%s url=%s", source, reason, url)
-                        out.unlink(missing_ok=True)
-                        continue
-                    topic = self._topic_from_tags(tags)
-                    checksum = hashlib.sha256(out.read_bytes()).hexdigest()
-                    logger.info("image selected source=%s score=%s size=%s url=%s", source, score, size, url)
-                    return url, out, topic, checksum, tags, source, size
-                delay = min(20, 0.6 * (2 ** (attempt - 1)))
-                logger.warning("retry provider attempt=%s/10 delay=%.2fs", attempt, delay)
-                await asyncio.sleep(delay)
+        if not await self._auth_pixiv():
+            return None
+
+        for attempt in range(1, 6):
+            query = PIXIV_QUERIES[self._query_index % len(PIXIV_QUERIES)]
+            self._query_index += 1
+            logger.info("Pixiv search query used: %s", query)
+            illusts = await asyncio.to_thread(self._search_pixiv, query)
+            random.shuffle(illusts)
+            for illust in illusts:
+                picked = await self._try_illust(illust, blocked_urls)
+                if picked:
+                    return picked
+            logger.warning("Pixiv search attempt failed attempt=%s/5 query=%s", attempt, query)
+            await asyncio.sleep(min(12, attempt * 1.5))
         return None
 
-    async def _collect_candidates(self, s):
-        c = []
-        c.extend(await self._fetch_safebooru(s))
-        c.extend(await self._fetch_danbooru(s))
-        c.extend(await self._fetch_gelbooru(s))
-        c.extend(await self._fetch_konachan(s))
-        c.extend(await self._fetch_zerochan(s))
-        return c
-
-    def _topic_from_tags(self, tags: str) -> str:
-        t = tags.lower()
-        if any(x in t for x in ("neon", "night", "city", "cyberpunk")): return "night city"
-        if any(x in t for x in ("sakura", "kimono")): return "sakura"
-        if any(x in t for x in ("beach", "ocean")): return "beach aesthetic"
-        if any(x in t for x in ("fantasy", "elf", "magic")): return "fantasy"
-        return "anime aesthetic"
-
-    async def _fetch_safebooru(self, s):
-        u = "https://safebooru.org/index.php?page=dapi&s=post&q=index&json=1&limit=100&tags=anime+1girl+rating:safe+masterpiece+best_quality"
-        return await self._fetch_generic_json(s, u, "safebooru", "file_url", "width", "height", "tags", "score")
-
-    async def _fetch_danbooru(self, s):
-        u = "https://danbooru.donmai.us/posts.json?limit=100&tags=rating:g+anime_girl+masterpiece+-school_uniform"
-        return await self._fetch_generic_json(s, u, "danbooru", "file_url", "image_width", "image_height", "tag_string_general", "score")
-
-    async def _fetch_gelbooru(self, s):
-        u = "https://gelbooru.com/index.php?page=dapi&s=post&q=index&json=1&limit=100&tags=rating:safe+anime+1girl+masterpiece"
-        return await self._fetch_generic_json(s, u, "gelbooru", "file_url", "width", "height", "tags", "score")
-
-    async def _fetch_konachan(self, s):
-        u = "https://konachan.com/post.json?limit=100&tags=safe+anime+masterpiece+-school_uniform"
-        return await self._fetch_generic_json(s, u, "konachan", "file_url", "width", "height", "tags", "score")
-
-    async def _fetch_zerochan(self, s):
-        return []
-
-    async def _fetch_generic_json(self, s, url, source, file_key, w_key, h_key, tags_key, score_key):
+    async def _auth_pixiv(self) -> bool:
         try:
-            async with s.get(url) as r:
-                if r.status != 200:
-                    return []
-                d = json.loads(await r.text())
-            rows = d if isinstance(d, list) else d.get("post", []) if isinstance(d, dict) else []
-            return [
-                (x.get(file_key, ""), int(x.get(w_key, 0) or 0), int(x.get(h_key, 0) or 0), (x.get(tags_key) or ""), source, int(x.get(score_key, 0) or 0))
-                for x in rows if x.get(file_key)
-            ]
+            await asyncio.to_thread(self.api.auth, refresh_token=self.pixiv_refresh_token)
+            logger.info("Pixiv auth success")
+            return True
         except Exception:
-            logger.exception("image provider fetch failed source=%s", source)
-            return []
+            logger.exception("Pixiv auth failure")
+            return False
 
-    async def _download(self, s, url):
-        p = self.storage_dir / (hashlib.md5(url.encode()).hexdigest() + ".jpg")
+    def _search_pixiv(self, query: str):
+        result = self.api.search_illust(query, search_target="partial_match_for_tags", sort="date_desc", filter="for_ios")
+        return list(getattr(result, "illusts", []) or [])
+
+    async def _try_illust(self, illust, blocked_urls: set[str] | None):
+        tags = " ".join(t.name.lower() for t in getattr(illust, "tags", []))
+        caption = (getattr(illust, "caption", "") or "").lower()
+        merged_text = f"{tags} {caption}"
+        if any(term in merged_text for term in BLOCKED_TERMS):
+            return None
+
+        urls = getattr(illust, "meta_single_page", {}) or {}
+        original = urls.get("original_image_url")
+        if not original:
+            pages = getattr(illust, "meta_pages", []) or []
+            if pages:
+                original = ((pages[0].get("image_urls") or {}).get("original"))
+        if not original or (blocked_urls and original in blocked_urls):
+            return None
+
+        local = await self._download_original(original)
+        if not local:
+            return None
+
+        valid, reason, size = validate_image_file(local, self.min_w, self.min_h)
+        if not valid:
+            logger.warning("Pixiv image rejected illust_id=%s reason=%s", getattr(illust, "id", "unknown"), reason)
+            local.unlink(missing_ok=True)
+            return None
+
+        topic = "anime aesthetic"
+        checksum = hashlib.sha256(local.read_bytes()).hexdigest()
+        logger.info("Pixiv illustration ID: %s", getattr(illust, "id", "unknown"))
+        logger.info("Pixiv image resolution: %sx%s", size[0], size[1])
+        logger.info("Pixiv image download success: %s", local)
+        return original, local, topic, checksum, tags, "pixiv", size
+
+    async def _download_original(self, url: str):
+        dest = self.storage_dir / f"pixiv_{hashlib.md5(url.encode()).hexdigest()}.jpg"
+        headers = {"Referer": "https://app-api.pixiv.net/"}
         try:
-            async with s.get(url) as r:
-                if r.status != 200:
-                    return None
-                if not (r.headers.get("Content-Type", "").lower().startswith("image/")):
-                    return None
-                p.write_bytes(await r.read())
-            return p
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=45), headers=headers) as s:
+                async with s.get(url) as r:
+                    if r.status != 200:
+                        return None
+                    data = await r.read()
+                    if not data:
+                        return None
+                    dest.write_bytes(data)
+                    return dest
         except Exception:
+            logger.exception("Pixiv image download failure")
             return None

@@ -100,13 +100,4 @@ class Database:
             row = c.execute("SELECT count(1) as cnt FROM posts WHERE post_type='news' AND substr(created_at,1,10)=?", (date,)).fetchone()
             return int(row["cnt"]) if row else 0
 
-    def has_replied_comment(self, comment_id: int) -> bool:
-        with self.conn() as c:
-            return c.execute("SELECT 1 FROM comment_replies WHERE comment_id=?", (comment_id,)).fetchone() is not None
 
-    def add_comment_reply(self, comment_id: int, user_id: int):
-        with self.conn() as c:
-            c.execute(
-                "INSERT OR IGNORE INTO comment_replies(comment_id,user_id,replied_at) VALUES(?,?,?)",
-                (comment_id, user_id, datetime.now(timezone.utc).isoformat()),
-            )

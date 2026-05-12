@@ -44,8 +44,9 @@ class BotScheduler:
             try:
                 attachment = self.vk_poster.upload_photo(str(local))
                 if not attachment:
-                    logger.error("vk upload failed attempt=%s/10", attempt)
+                    logger.error("VK upload failure attempt=%s/10", attempt)
                     continue
+                logger.info("VK upload success attachment=%s", attachment)
                 post_id = self.vk_poster.post(text, attachment)
             except Exception:
                 logger.exception("vk api failed")

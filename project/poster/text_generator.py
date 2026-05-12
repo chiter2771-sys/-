@@ -1,58 +1,20 @@
 import random
-import asyncio
-from asyncio import TimeoutError
-from typing import Iterable
 
-from openai import AsyncOpenAI
-from openai import APIError, RateLimitError
-
-STYLES = ["спокойный", "ночной", "меланхоличный", "уютный"]
+CAPTIONS = [
+    "Иногда один кадр говорит больше слов 🌙",
+    "Тёплый свет и тихая атмосфера...",
+    "Просто красивый вайб ✨",
+    "Есть что-то особенное в таких кадрах.",
+    "Спокойствие в чистом виде 🌸",
+    "Немного света, немного тишины и идеальный настрой.",
+    "Кадр, в котором хочется остаться подольше.",
+]
 
 
 class TextGenerator:
     def __init__(self, api_key: str, model: str, fallback_model: str):
-        self.client = AsyncOpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
-        self.model = model
-        self.fallback_model = fallback_model
+        _ = (api_key, model, fallback_model)
 
-    async def _generate_with_model(self, model: str, prompt: str, topic: str, style: str) -> str:
-        res = await self.client.chat.completions.create(
-            model=model,
-            messages=[{"role":"system","content":prompt},{"role":"user","content":f"Тема: {topic}. Стиль: {style}."}],
-            max_tokens=80,
-            timeout=8,
-        )
-        text = ((res.choices[0].message.content if res.choices else "") or "").strip()
-        if not text:
-            raise ValueError("empty response")
-        return text
-
-    @staticmethod
-    def _local_fallback(topic: str, style: str) -> str:
-        by_topic = {
-            "cozy": ["Теплый свет и спокойный вечер.", "Здесь легко задержаться взглядом."],
-            "melancholy": ["После дождя всегда тише.", "Ночной город снова молчит."],
-            "action": ["В этом кадре много движения.", "Секунда перед рывком."],
-            "fantasy": ["Как будто из старой сказки.", "Немного магии в обычном вечере."],
-            "cyberpunk": ["Неон и тишина рядом.", "Город светится, но не спешит."],
-        }
-        templates = by_topic.get(topic, ["Иногда достаточно просто смотреть.", "Свет в окнах и немного тишины."])
-        return random.choice(templates)
-
-    async def _try_models(self, models: Iterable[str], prompt: str, topic: str, style: str) -> str:
-        for model in models:
-            for attempt in range(2):
-                try:
-                    return await self._generate_with_model(model, prompt, topic, style)
-                except (RateLimitError, TimeoutError, APIError, ValueError):
-                    await asyncio.sleep(0.7 * (attempt + 1))
-                    continue
-        return self._local_fallback(topic, style)
-
-    async def caption(self, topic: str) -> str:
-        style = random.choice(STYLES)
-        prompt = (
-            "Напиши короткую атмосферную подпись для аниме-арта только на русском языке. "
-            "Подстрой тон под тему кадра. Без англицизмов, без пафоса, без штампов."
-        )
-        return await self._try_models((self.model, self.fallback_model), prompt, topic, style)
+    async def caption(self, topic: str, tags: str = "") -> str:
+        _ = (topic, tags)
+        return random.choice(CAPTIONS)
