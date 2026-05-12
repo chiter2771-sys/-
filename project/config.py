@@ -3,12 +3,24 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+CAPTIONS = [
+    "Иногда один арт может передать вайб лучше любых слов 🌙",
+    "Тихий кадр, в котором хочется остаться ✨",
+    "Эстетика вечера, неон и немного спокойствия 🖤",
+    "Просто красивый момент, который захотелось сохранить 🌸",
+    "Атмосфера, в которую приятно провалиться ✨",
+    "Тот самый уютный anime vibe 🌙",
+    "Немного спокойствия в ленту 🖤",
+    "Красота в деталях ✨",
+]
+FIXED_HASHTAGS = "#anime #animeart #аниме #art #animegirl #aesthetic #вайб #AniLuna"
+
+
 @dataclass(slots=True)
 class Settings:
     vk_token: str
     vk_group_id: int
     openrouter_api_key: str
-    pixiv_refresh_token: str
     openrouter_model: str
     openrouter_fallback_model: str
     db_path: str
@@ -23,6 +35,8 @@ class Settings:
     min_image_height: int
     cleanup_keep_files: int
     test_post_now: bool
+    captions: list[str]
+    fixed_hashtags: str
 
 
 def _require(name: str) -> str:
@@ -39,7 +53,6 @@ def load_settings() -> Settings:
         vk_token=_require("VK_TOKEN"),
         vk_group_id=int(_require("VK_GROUP_ID")),
         openrouter_api_key=_require("OPENROUTER_API_KEY"),
-        pixiv_refresh_token=_require("PIXIV_REFRESH_TOKEN"),
         openrouter_model=os.getenv("OPENROUTER_MODEL", "openai/gpt-4.1-mini"),
         openrouter_fallback_model=os.getenv("OPENROUTER_FALLBACK_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
         db_path=os.getenv("DB_PATH", "database/bot.db"),
@@ -54,4 +67,6 @@ def load_settings() -> Settings:
         min_image_height=int(os.getenv("MIN_IMAGE_HEIGHT", "1200")),
         cleanup_keep_files=int(os.getenv("CLEANUP_KEEP_FILES", "150")),
         test_post_now=os.getenv("TEST_POST_NOW", "false").lower() == "true",
+        captions=CAPTIONS,
+        fixed_hashtags=FIXED_HASHTAGS,
     )

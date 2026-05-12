@@ -112,26 +112,3 @@ class VKPoster:
         res = self._call("wall.get", owner_id=-abs(self.group_id), count=count)
         return res.get("items", []) if isinstance(res, dict) else []
 
-    def get_post_comments(self, post_id: int, count: int = 20) -> list[dict[str, Any]]:
-        res = self._call(
-            "wall.getComments",
-            owner_id=-abs(self.group_id),
-            post_id=post_id,
-            need_likes=0,
-            sort="desc",
-            count=count,
-            preview_length=0,
-            extended=0,
-        )
-        return res.get("items", []) if isinstance(res, dict) else []
-
-    def reply_to_comment(self, post_id: int, comment_id: int, message: str) -> int:
-        res = self._call(
-            "wall.createComment",
-            owner_id=-abs(self.group_id),
-            post_id=post_id,
-            reply_to_comment=comment_id,
-            from_group=1,
-            message=message,
-        )
-        return int(res.get("comment_id", 0))

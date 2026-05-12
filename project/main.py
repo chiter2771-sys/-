@@ -8,7 +8,7 @@ from config import load_settings
 from database.db import Database
 from news.summarizer import NewsSummarizer
 from poster.hashtags import generate_hashtags
-from poster.image_fetcher import ImageFetcher
+from poster.art_fetcher import ArtFetcher
 from poster.scheduler import BotScheduler
 from poster.text_generator import TextGenerator
 from poster.vk_poster import VKPoster
@@ -33,11 +33,9 @@ async def main():
 
     # Startup connectivity check for image sources (does not stop scheduler)
     try:
-        probe = await ImageFetcher(settings.storage_path, settings.min_image_width, settings.min_image_height, settings.pixiv_refresh_token).fetch_random()
+        probe = await asyncio.to_thread(ArtFetcher(settings.storage_path, settings.min_image_width, settings.min_image_height).fetch_art)
         if probe:
-            image_url, local_path, _, _, _, _, _ = probe
-            logging.info("Startup image fetch URL: %s", image_url)
-            logging.info("Startup image download path: %s", local_path)
+            logging.info("Startup image fetch URL: %s", probe.get("image"))
             logging.info("Image fetched successfully")
         else:
             logging.error("Startup image probe failed: no image fetched")
@@ -47,7 +45,7 @@ async def main():
     scheduler = BotScheduler(
         settings=settings,
         db=db,
-        image_fetcher=ImageFetcher(settings.storage_path, settings.min_image_width, settings.min_image_height, settings.pixiv_refresh_token),
+        image_fetcher=ArtFetcher(settings.storage_path, settings.min_image_width, settings.min_image_height),
         text_gen=TextGenerator(settings.openrouter_api_key, settings.openrouter_model, settings.openrouter_fallback_model),
         news_summarizer=NewsSummarizer(settings.openrouter_api_key, settings.openrouter_model, settings.openrouter_fallback_model),
         vk_poster=VKPoster(settings.vk_token, settings.vk_group_id),
